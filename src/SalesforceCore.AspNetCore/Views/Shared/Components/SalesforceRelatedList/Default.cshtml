@@ -1,0 +1,120 @@
+@model SalesforceCore.AspNetCore.ViewComponents.RelatedListViewModel
+
+<div class="sf-related-list">
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="sf-related-list-error alert alert-danger">
+            @Model.ErrorMessage
+        </div>
+    }
+    else
+    {
+        @if (Model.ShowHeader)
+        {
+            <div class="sf-related-list-header">
+                <h5 class="sf-related-list-title">
+                    @Model.Title
+                    <span class="sf-related-list-count">(@Model.TotalCount@(Model.HasMoreRecords ? "+" : ""))</span>
+                </h5>
+                <div class="sf-related-list-actions">
+                    @if (Model.AllowCreate && !string.IsNullOrEmpty(Model.CreateUrl))
+                    {
+                        <a href="@Model.CreateUrl" class="btn btn-sm btn-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            New
+                        </a>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (Model.Records.Count > 0)
+        {
+            <table class="sf-related-list-table">
+                <thead>
+                    <tr>
+                        @foreach (var col in Model.Columns)
+                        {
+                            <th>@col.Label</th>
+                        }
+                        <th style="width: 50px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var record in Model.Records)
+                    {
+                        <tr>
+                            @foreach (var col in Model.Columns)
+                            {
+                                <td>
+                                    @if (col.IsNameField)
+                                    {
+                                        <a href="/Salesforce/@Model.ChildObject/Details/@record.Id">
+                                            @record.Values.GetValueOrDefault(col.FieldName, "")
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        @record.Values.GetValueOrDefault(col.FieldName, "")
+                                    }
+                                </td>
+                            }
+                            <td>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                            <circle cx="12" cy="5" r="2"></circle>
+                                            <circle cx="12" cy="12" r="2"></circle>
+                                            <circle cx="12" cy="19" r="2"></circle>
+                                        </svg>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <li>
+                                            <a class="dropdown-item" href="/Salesforce/@Model.ChildObject/Details/@record.Id">
+                                                View
+                                            </a>
+                                        </li>
+                                        <li>
+                                            <a class="dropdown-item" href="/Salesforce/@Model.ChildObject/Edit/@record.Id">
+                                                Edit
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (Model.HasMoreRecords)
+            {
+                <div class="sf-related-list-footer">
+                    @if (!string.IsNullOrEmpty(Model.ViewAllUrl))
+                    {
+                        <a href="@Model.ViewAllUrl">View All</a>
+                    }
+                    else
+                    {
+                        <a href="/Salesforce/@Model.ChildObject?@(Model.RelationshipField)=@Model.ParentId">View All</a>
+                    }
+                </div>
+            }
+        }
+        else
+        {
+            <div class="sf-related-list-empty">
+                <p class="mb-0">No @Model.Title.ToLower() found.</p>
+                @if (Model.AllowCreate && !string.IsNullOrEmpty(Model.CreateUrl))
+                {
+                    <a href="@Model.CreateUrl" class="btn btn-sm btn-outline-primary mt-2">
+                        Create New
+                    </a>
+                }
+            </div>
+        }
+    }
+</div>

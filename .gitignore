@@ -1,0 +1,137 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio/JetBrains
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+
+# Rider/Resharper caches
+_ReSharper*/
+*.sln.iml
+.idea/
+
+# Logs
+*.log
+
+# ASP.NET specific
+wwwroot/lib/
+
+# Dotnet tooling
+project.lock.json
+artifacts/
+
+# NuGet
+*.nupkg
+packages/
+*.snupkg
+
+# Coverage
+coverage/
+*.opencover.xml
+*.coverage
+*.coveragexml
+
+# Model generator outputs
+src/SalesforceCore.ModelGenerator/bin/
+src/SalesforceCore.ModelGenerator/obj/
+
+# Tests outputs
+tests/**/bin/
+tests/**/obj/
+
+# Additional build outputs
+**/out/
+**/publish/
+**/app.publish/
+**/TestResults/
+**/bin/
+**/obj/
+**/Debug/
+**/Release/
+**/debug/
+**/release/
+**/x64/
+**/x86/
+**/AnyCPU/
+**/ARM/
+**/ARM64/
+**/win-x64/
+**/win-x86/
+**/linux-x64/
+**/linux-arm64/
+**/osx-x64/
+**/osx-arm64/
+
+# Debug symbols and dumps
+*.pdb
+*.mdb
+*.dbg
+*.ilk
+*.dSYM/
+*.dmp
+*.dump
+*.ipdb
+*.iobj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+*.obj
+*.o
+*.pch
+*.rsp
+*.cache
+*.trace
+*.etl
+*.ncb
+*.sdf
+
+# AI/session artifacts
+.claude/
+.codex/
+.aider/
+.cursor/
+.continue/
+.cline/
+.windsurf/
+.openai/
+.llm/
+.anthropic/
+.chatgpt/
+.gpt/
+.llama/
+.promptfoo/
+.vscode-test/
+.vscode-test-web/
+.history/
+.sessions/
+.session/
+.chat/
+CLAUDE*
+GEMINI*
+AGENTS*
+AGENT_ORCHESTRATION.md
+PLAN.md
+MAPPINGS.md
+WEBSITES_INFORMATION.MD
+GEMINI.md
+CLAUDE.md
+AGENTS.md
+*.session
+*.session.*
+*.history
+*.history.*
+*.prompt
+*.prompt.*
+*.chat
+*.chat.*
+*.ai
+*.ai.*

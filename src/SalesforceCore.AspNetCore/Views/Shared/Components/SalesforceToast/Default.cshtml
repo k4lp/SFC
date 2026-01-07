@@ -1,0 +1,77 @@
+@model SalesforceCore.AspNetCore.ViewComponents.ToastViewModel
+
+@if (Model.Messages.Count > 0)
+{
+    <div class="sf-toast-container sf-toast-@Model.Position"
+         data-sf-toast-container="true"
+         data-sf-auto-dismiss="@Model.AutoDismissMs"
+         data-sf-closable="@Model.Closable.ToString().ToLower()">
+        @foreach (var message in Model.Messages)
+        {
+            <div class="sf-toast sf-toast-@message.Type sf-toast-visible">
+                <span class="sf-toast-icon">
+                    @switch (message.Type)
+                    {
+                        case "success":
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                            break;
+                        case "error":
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                            </svg>
+                            break;
+                        case "warning":
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+                            </svg>
+                            break;
+                        default:
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                            </svg>
+                            break;
+                    }
+                </span>
+                <span class="sf-toast-message">
+                    @if (!string.IsNullOrEmpty(message.Title))
+                    {
+                        <strong>@message.Title</strong>
+                        <br />
+                    }
+                    @message.Text
+                </span>
+                @if (Model.Closable)
+                {
+                    <button type="button" class="sf-toast-close" onclick="this.parentElement.remove()">&times;</button>
+                }
+            </div>
+        }
+    </div>
+
+    @if (Model.AutoDismissMs > 0)
+    {
+        <script>
+            (function() {
+                var container = document.querySelector('[data-sf-toast-container]');
+                if (!container) return;
+
+                var autoDismiss = parseInt(container.getAttribute('data-sf-auto-dismiss')) || 5000;
+                var toasts = container.querySelectorAll('.sf-toast');
+
+                toasts.forEach(function(toast, index) {
+                    setTimeout(function() {
+                        toast.classList.remove('sf-toast-visible');
+                        toast.classList.add('sf-toast-hiding');
+                        setTimeout(function() {
+                            if (toast.parentNode) {
+                                toast.parentNode.removeChild(toast);
+                            }
+                        }, 300);
+                    }, autoDismiss + (index * 500));
+                });
+            })();
+        </script>
+    }
+}

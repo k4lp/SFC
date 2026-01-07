@@ -1,0 +1,47 @@
+@model SalesforceCore.Models.Data.LookupSearchResult
+
+@if (Model.Items.Count == 0)
+{
+    <div class="dropdown-item text-muted text-center py-3">
+        <i class="fas fa-search me-2"></i>
+        No results found
+    </div>
+}
+else
+{
+    foreach (var item in Model.Items)
+    {
+        <button type="button"
+                class="dropdown-item sf-lookup-item d-flex align-items-center"
+                data-id="@item.Id"
+                data-name="@item.DisplayName"
+                data-object="@item.ObjectType"
+                onclick="SalesforceLookup.selectItem(this)">
+            <div class="me-3">
+                <i class="@(item.IconClass ?? "fas fa-cube") text-muted"></i>
+            </div>
+            <div class="flex-grow-1">
+                <div class="fw-medium">@item.DisplayName</div>
+                @if (!string.IsNullOrEmpty(item.SecondaryText))
+                {
+                    <small class="text-muted">@item.SecondaryText</small>
+                }
+            </div>
+            @if (item.IsRecent)
+            {
+                <span class="badge bg-light text-muted ms-2">Recent</span>
+            }
+            @if (!string.IsNullOrEmpty(item.ObjectLabel) && item.ObjectLabel != Model.TargetObject)
+            {
+                <span class="badge bg-secondary ms-2">@item.ObjectLabel</span>
+            }
+        </button>
+    }
+
+    @if (Model.HasMore)
+    {
+        <div class="dropdown-item text-muted text-center small">
+            Type more to refine results...
+        </div>
+    }
+}

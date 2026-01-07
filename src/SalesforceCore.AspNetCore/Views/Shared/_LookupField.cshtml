@@ -1,0 +1,65 @@
+@model LookupFieldModel
+@{
+    var inputId = $"field_{Model.FieldName}";
+    var displayId = $"{inputId}_display";
+    var resultsId = $"{inputId}_results";
+    var polymorphicTargets = Model.IsPolymorphic ? string.Join(",", Model.PolymorphicTargets) : "";
+}
+
+<div class="sf-lookup-container" data-field-name="@Model.FieldName">
+    <!-- Hidden ID field -->
+    <input type="hidden"
+           id="@inputId"
+           name="@Model.FieldName"
+           value="@Model.Value"
+           class="sf-lookup-id" />
+
+    <!-- Search input -->
+    <div class="input-group">
+        <span class="input-group-text">
+            <i class="fas fa-search"></i>
+        </span>
+        <input type="text"
+               class="form-control sf-lookup-search"
+               id="@displayId"
+               value="@Model.DisplayName"
+               placeholder="Search @Model.TargetObject..."
+               autocomplete="off"
+               data-target="@Model.TargetObject"
+               data-field="@Model.FieldName"
+               data-polymorphic="@(Model.IsPolymorphic ? "true" : "false")"
+               data-polymorphic-targets="@polymorphicTargets"
+               hx-get="@Url.Action("Search", "Lookup")"
+               hx-trigger="keyup changed delay:300ms"
+               hx-target="#@resultsId"
+               hx-include="this"
+               hx-vals='{"targetObject": "@Model.TargetObject", "polymorphicTargets": "@polymorphicTargets"}'
+               @(Model.IsRequired ? "required" : "") />
+        @if (!string.IsNullOrEmpty(Model.Value))
+        {
+            <a href="@Url.Action("Details", "Salesforce", new { sObject = Model.TargetObject, id = Model.Value })"
+               target="_blank"
+               class="btn btn-outline-secondary sf-lookup-view"
+               title="View record">
+                <i class="fas fa-external-link-alt"></i>
+            </a>
+        }
+        <button type="button"
+                class="btn btn-outline-secondary sf-lookup-clear"
+                title="Clear">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+
+    @if (Model.IsPolymorphic)
+    {
+        <small class="form-text text-muted">
+            <i class="fas fa-random me-1"></i>
+            Can link to: @string.Join(", ", Model.PolymorphicTargets)
+        </small>
+    }
+
+    <!-- Results dropdown -->
+    <div id="@resultsId" class="sf-lookup-results dropdown-menu w-100"></div>
+</div>
+

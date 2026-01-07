@@ -1,0 +1,252 @@
+@using SalesforceCore.Models.Metadata
+@using SalesforceCore.Models.Configuration
+@model FieldInputModel
+@{
+    var field = Model.Field;
+    var value = Model.Value;
+    var fieldOverride = Model.FieldOverride;
+
+    var label = fieldOverride?.Label ?? field.Label;
+    var placeholder = fieldOverride?.Placeholder ?? "";
+    var helpText = fieldOverride?.HelpText ?? field.InlineHelpText;
+    var isRequired = fieldOverride?.Required ?? field.IsRequired;
+    var isReadOnly = fieldOverride?.ReadOnly ?? field.IsReadOnly;
+    var maxLength = fieldOverride?.MaxLength ?? field.Length;
+    var cssClass = fieldOverride?.CssClass ?? "";
+
+    var fieldType = field.Type.ToLowerInvariant();
+    var inputId = $"field_{field.Name}";
+}
+
+<div class="sf-field-wrapper @cssClass" data-field-name="@field.Name" data-field-type="@fieldType">
+    @if (fieldType != "boolean")
+    {
+        <label for="@inputId" class="form-label">
+            @label
+            @if (isRequired)
+            {
+                <span class="text-danger">*</span>
+            }
+        </label>
+    }
+
+    @switch (fieldType)
+    {
+        case "boolean":
+            <div class="form-check form-switch">
+                <input type="checkbox"
+                       class="form-check-input"
+                       id="@inputId"
+                       name="@field.Name"
+                       value="true"
+                       checked="@(value?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)"
+                       @(isReadOnly ? "disabled" : "") />
+                <label class="form-check-label" for="@inputId">@label</label>
+            </div>
+            break;
+
+        case "picklist":
+            <select class="form-select" id="@inputId" name="@field.Name"
+                    @(isRequired ? "required" : "") @(isReadOnly ? "disabled" : "")>
+                <option value="">--Select--</option>
+                @foreach (var option in field.PicklistValues.Where(p => p.Active))
+                {
+                    <option value="@option.Value" selected="@(value == option.Value)">@option.Label</option>
+                }
+            </select>
+            break;
+
+        case "multipicklist":
+            <select class="form-select" id="@inputId" name="@field.Name" multiple
+                    @(isRequired ? "required" : "") @(isReadOnly ? "disabled" : "")
+                    size="@Math.Min(5, field.PicklistValues.Count(p => p.Active))">
+                @{
+                    var selectedValues = (value ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries);
+                }
+                @foreach (var option in field.PicklistValues.Where(p => p.Active))
+                {
+                    <option value="@option.Value" selected="@selectedValues.Contains(option.Value)">@option.Label</option>
+                }
+            </select>
+            <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple</small>
+            break;
+
+        case "reference":
+            @await Html.PartialAsync("_LookupField", new LookupFieldModel
+            {
+                FieldName = field.Name,
+                TargetObject = field.PrimaryReferenceTo ?? "",
+                Value = value,
+                DisplayName = Model.LookupDisplayName,
+                Label = label,
+                IsRequired = isRequired,
+                IsPolymorphic = field.PolymorphicForeignKey,
+                PolymorphicTargets = field.ReferenceTo
+            })
+            break;
+
+        case "textarea":
+            <textarea class="form-control" id="@inputId" name="@field.Name"
+                      rows="4"
+                      maxlength="@maxLength"
+                      placeholder="@placeholder"
+                      @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "")>@value</textarea>
+            break;
+
+        case "date":
+            <input type="date"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "datetime":
+            <input type="datetime-local"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "time":
+            <input type="time"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "email":
+            <input type="email"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   maxlength="@maxLength"
+                   placeholder="@(string.IsNullOrEmpty(placeholder) ? "email@example.com" : placeholder)"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "phone":
+            <input type="tel"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   maxlength="@maxLength"
+                   placeholder="@placeholder"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "url":
+            <input type="url"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   maxlength="@maxLength"
+                   placeholder="@(string.IsNullOrEmpty(placeholder) ? "https://example.com" : placeholder)"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "currency":
+            <div class="input-group">
+                <span class="input-group-text">$</span>
+                <input type="number"
+                       class="form-control"
+                       id="@inputId"
+                       name="@field.Name"
+                       value="@value"
+                       step="@(field.Scale > 0 ? Math.Pow(10, -field.Scale).ToString(System.Globalization.CultureInfo.InvariantCulture) : "0.01")"
+                       min="@fieldOverride?.MinValue"
+                       max="@fieldOverride?.MaxValue"
+                       placeholder="@placeholder"
+                       @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            </div>
+            break;
+
+        case "percent":
+            <div class="input-group">
+                <input type="number"
+                       class="form-control"
+                       id="@inputId"
+                       name="@field.Name"
+                       value="@value"
+                       step="@(field.Scale > 0 ? Math.Pow(10, -field.Scale).ToString(System.Globalization.CultureInfo.InvariantCulture) : "0.01")"
+                       min="0"
+                       max="100"
+                       placeholder="@placeholder"
+                       @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+                <span class="input-group-text">%</span>
+            </div>
+            break;
+
+        case "int":
+        case "integer":
+        case "long":
+            <input type="number"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   step="1"
+                   min="@fieldOverride?.MinValue"
+                   max="@fieldOverride?.MaxValue"
+                   placeholder="@placeholder"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "double":
+        case "decimal":
+            <input type="number"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   step="@(field.Scale > 0 ? Math.Pow(10, -field.Scale).ToString(System.Globalization.CultureInfo.InvariantCulture) : "any")"
+                   min="@fieldOverride?.MinValue"
+                   max="@fieldOverride?.MaxValue"
+                   placeholder="@placeholder"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+
+        case "encryptedstring":
+            <input type="password"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value=""
+                   maxlength="@maxLength"
+                   placeholder="@(Model.IsCreate ? placeholder : "Leave blank to keep current value")"
+                   autocomplete="new-password"
+                   @(isReadOnly ? "readonly" : "") />
+            break;
+
+        default:
+            <input type="text"
+                   class="form-control"
+                   id="@inputId"
+                   name="@field.Name"
+                   value="@value"
+                   maxlength="@(maxLength > 0 ? maxLength : null)"
+                   placeholder="@placeholder"
+                   pattern="@fieldOverride?.ValidationPattern"
+                   @(isRequired ? "required" : "") @(isReadOnly ? "readonly" : "") />
+            break;
+    }
+
+    @if (!string.IsNullOrEmpty(helpText))
+    {
+        <small class="form-text text-muted">@helpText</small>
+    }
+
+    @if (!string.IsNullOrEmpty(fieldOverride?.ValidationMessage))
+    {
+        <div class="invalid-feedback">@fieldOverride.ValidationMessage</div>
+    }
+</div>
+

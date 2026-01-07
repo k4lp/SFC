@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Make this a .NET Tool -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sf-gen</ToolCommandName>
+    <PackageOutputPath>./nupkg</PackageOutputPath>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>SalesforceCore.ModelGenerator</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>SalesforceCore Contributors</Authors>
+    <Company>SalesforceCore</Company>
+    <Product>SalesforceCore Model Generator</Product>
+    <Description>CLI tool to generate strongly-typed C# model classes from Salesforce object metadata. Part of the SalesforceCore library ecosystem.</Description>
+    <PackageTags>salesforce;code-generation;cli;dotnet-tool;model-generator;sobject</PackageTags>
+    <PackageProjectUrl>https://github.com/salesforcecore/salesforce-core</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/salesforcecore/salesforce-core</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Copyright>Copyright (c) 2024 SalesforceCore Contributors</Copyright>
+
+    <!-- Assembly Info -->
+    <AssemblyName>SalesforceCore.ModelGenerator</AssemblyName>
+    <RootNamespace>SalesforceCore.ModelGenerator</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0-*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SalesforceCore\SalesforceCore.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>SalesforceCore</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>SalesforceCore Contributors</Authors>
+    <Company>SalesforceCore</Company>
+    <Product>SalesforceCore</Product>
+    <Description>A comprehensive, metadata-driven Salesforce REST API client library for .NET. Provides intelligent schema discovery, dynamic CRUD operations, smart lookup resolution, batch processing, and comprehensive field type handling with minimal configuration. Works with any Salesforce object without code changes.</Description>
+    <PackageTags>salesforce;crm;rest-api;dotnet;csharp;salesforce-api;metadata-driven;dynamic-forms;sobject;soql;oauth2;change-tracking;validation</PackageTags>
+    <PackageProjectUrl>https://github.com/salesforcecore/salesforce-core</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/salesforcecore/salesforce-core</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>Initial release with full Salesforce API integration, metadata-driven architecture, intelligent lookups, batch operations, and comprehensive field type support.</PackageReleaseNotes>
+    <Copyright>Copyright (c) 2024 SalesforceCore Contributors</Copyright>
+
+    <!-- Build Settings -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+
+    <!-- Symbol Package for Debugging -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Assembly Info -->
+    <AssemblyName>SalesforceCore</AssemblyName>
+    <RootNamespace>SalesforceCore</RootNamespace>
+
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core Dependencies - Minimal footprint -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.2.1" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.2.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0-*" />
+    <PackageReference Include="CsvHelper" Version="33.0.1" />
+
+    <!-- SQL Server Encrypted Cache - Government-grade caching with AES-256-GCM encryption -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0-*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

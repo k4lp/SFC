@@ -1,0 +1,314 @@
+@model DetailsViewModel
+@{
+    ViewData["Title"] = $"{Model.ObjectLabel} Details";
+    var displayName = Model.Record["Name"]?.ToString() ?? Model.RecordId;
+    var enableFileUploads = Model.MvcOptions.EnableFileUploads;
+    var confirmDeletes = Model.MvcOptions.ConfirmDeletes;
+}
+
+<div class="sf-details-container">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-2">
+                    <li class="breadcrumb-item">
+                        <a href="@Url.Action("Index", new { sObject = Model.SObject })">@(Model.ModuleConfig?.PluralLabel ?? Model.ObjectLabel + "s")</a>
+                    </li>
+                    <li class="breadcrumb-item active" aria-current="page">@displayName</li>
+                </ol>
+            </nav>
+            <h1 class="h3 mb-0">
+                @if (Model.ModuleConfig?.Icon != null)
+                {
+                    <i class="@Model.ModuleConfig.Icon me-2"></i>
+                }
+                @displayName
+            </h1>
+        </div>
+        <div class="d-flex gap-2">
+            @if (Model.CanEdit)
+            {
+                <a href="@Url.Action("Edit", new { sObject = Model.SObject, id = Model.RecordId })"
+                   class="btn btn-primary">
+                    <i class="fas fa-edit me-1"></i> Edit
+                </a>
+            }
+            @if (Model.CanDelete)
+            {
+                @if (confirmDeletes)
+                {
+                    <button type="button" class="btn btn-outline-danger"
+                            onclick="confirmDelete()">
+                        <i class="fas fa-trash me-1"></i> Delete
+                    </button>
+                }
+                else
+                {
+                    <form method="post" action="@Url.Action("Delete", new { sObject = Model.SObject, id = Model.RecordId })" class="d-inline">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-outline-danger">
+                            <i class="fas fa-trash me-1"></i> Delete
+                        </button>
+                    </form>
+                }
+            }
+        </div>
+    </div>
+
+    <!-- Success/Error Messages -->
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="row">
+        <!-- Main Content -->
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        @foreach (var field in Model.Fields.Where(f => !f.IsCompound && !f.DeprecatedAndHidden))
+                        {
+                            var value = Model.GetDisplayValue(field.Name);
+                            if (string.IsNullOrEmpty(value) && field.Name != "Id") continue;
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-muted small mb-1">@field.Label</label>
+                                <div class="sf-field-value">
+                                    @if (field.IsLookup && !string.IsNullOrEmpty(value))
+                                    {
+                                        var lookupId = Model.Record[field.Name]?.ToString();
+                                        var displayText = Model.HydratedLookups.GetValueOrDefault(field.Name, lookupId ?? "");
+                                        <a href="@Url.Action("Details", new { sObject = field.PrimaryReferenceTo, id = lookupId })"
+                                           class="text-decoration-none">
+                                            @displayText
+                                        </a>
+                                    }
+                                    else if (field.Type.Equals("url", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(value))
+                                    {
+                                        <a href="@value" target="_blank" rel="noopener">@value</a>
+                                    }
+                                    else if (field.Type.Equals("email", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(value))
+                                    {
+                                        <a href="mailto:@value">@value</a>
+                                    }
+                                    else if (field.Type.Equals("phone", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(value))
+                                    {
+                                        <a href="tel:@value">@value</a>
+                                    }
+                                    else if (field.Type.Equals("boolean", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="badge @(value.Equals("true", StringComparison.OrdinalIgnoreCase) ? "bg-success" : "bg-secondary")">
+                                            @(value.Equals("true", StringComparison.OrdinalIgnoreCase) ? "Yes" : "No")
+                                        </span>
+                                    }
+                                    else if (field.Type.Equals("textarea", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="sf-textarea-value">@value</div>
+                                    }
+                                    else
+                                    {
+                                        @(string.IsNullOrEmpty(value) ? "—" : FieldTypeConverter.FormatForDisplay(field, value))
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Attached Files -->
+            @if (Model.AttachedFiles.Count > 0)
+            {
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Files</h5>
+                        <span class="badge bg-primary">@Model.AttachedFiles.Count</span>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        @foreach (var file in Model.AttachedFiles)
+                        {
+                            <div class="list-group-item">
+                                @if (file.IsImage)
+                                {
+                                    <a href="@Url.Action("GetImage", "File", new { versionId = file.ContentVersionId, type = file.FileExtension })"
+                                       target="_blank">
+                                        <img src="@Url.Action("GetImage", "File", new { versionId = file.ContentVersionId, type = file.FileExtension })"
+                                             alt="@file.Title"
+                                             class="img-thumbnail mb-2"
+                                             style="max-width: 100%; max-height: 150px;" />
+                                    </a>
+                                }
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@file.Title</strong>
+                                        <small class="text-muted d-block">
+                                            @file.FileExtension.ToUpper() &middot;
+                                            @((file.ContentSize / 1024.0).ToString("N0")) KB
+                                        </small>
+                                    </div>
+                                    <a href="@Url.Action("Download", "File", new { versionId = file.ContentVersionId, filename = $"{file.Title}.{file.FileExtension}" })"
+                                       class="btn btn-sm btn-outline-primary" title="Download">
+                                        <i class="fas fa-download"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (enableFileUploads)
+            {
+                <!-- Upload File -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Upload File</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="post"
+                              action="@Url.Action("Upload", new { sObject = Model.SObject, id = Model.RecordId })"
+                              enctype="multipart/form-data">
+                            @Html.AntiForgeryToken()
+                            <div class="mb-3">
+                                <input type="file" name="file" class="form-control" required />
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-upload me-1"></i> Upload
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            }
+
+            <!-- System Information -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">System Information</h5>
+                </div>
+                <div class="card-body small">
+                    <div class="mb-2">
+                        <label class="text-muted">Record ID</label>
+                        <div class="font-monospace">@Model.RecordId</div>
+                    </div>
+                    @{
+                        var createdDate = Model.Record["CreatedDate"]?.ToString();
+                        var modifiedDate = Model.Record["LastModifiedDate"]?.ToString();
+                        string? createdDisplay = null;
+                        if (!string.IsNullOrWhiteSpace(createdDate))
+                        {
+                            if (DateTimeOffset.TryParse(
+                                    createdDate,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    System.Globalization.DateTimeStyles.RoundtripKind,
+                                    out var createdDto))
+                            {
+                                createdDisplay = createdDto.LocalDateTime.ToString("g");
+                            }
+                            else if (DateTime.TryParse(
+                                         createdDate,
+                                         System.Globalization.CultureInfo.InvariantCulture,
+                                         System.Globalization.DateTimeStyles.RoundtripKind,
+                                         out var createdDt))
+                            {
+                                createdDisplay = createdDt.ToString("g");
+                            }
+                            else
+                            {
+                                createdDisplay = createdDate;
+                            }
+                        }
+
+                        string? modifiedDisplay = null;
+                        if (!string.IsNullOrWhiteSpace(modifiedDate))
+                        {
+                            if (DateTimeOffset.TryParse(
+                                    modifiedDate,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    System.Globalization.DateTimeStyles.RoundtripKind,
+                                    out var modifiedDto))
+                            {
+                                modifiedDisplay = modifiedDto.LocalDateTime.ToString("g");
+                            }
+                            else if (DateTime.TryParse(
+                                         modifiedDate,
+                                         System.Globalization.CultureInfo.InvariantCulture,
+                                         System.Globalization.DateTimeStyles.RoundtripKind,
+                                         out var modifiedDt))
+                            {
+                                modifiedDisplay = modifiedDt.ToString("g");
+                            }
+                            else
+                            {
+                                modifiedDisplay = modifiedDate;
+                            }
+                        }
+                    }
+                    @if (!string.IsNullOrEmpty(createdDisplay))
+                    {
+                        <div class="mb-2">
+                            <label class="text-muted">Created</label>
+                            <div>@createdDisplay</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(modifiedDisplay))
+                    {
+                        <div>
+                            <label class="text-muted">Last Modified</label>
+                            <div>@modifiedDisplay</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+@if (Model.CanDelete && confirmDeletes)
+{
+    <div class="modal fade" id="deleteModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete this @Model.ObjectLabel.ToLower()?</p>
+                    <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form method="post" action="@Url.Action("Delete", new { sObject = Model.SObject, id = Model.RecordId })" class="d-inline">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function confirmDelete() {
+            new bootstrap.Modal(document.getElementById('deleteModal')).show();
+        }
+    </script>
+}

@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>SalesforceCore.AspNetCore</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>SalesforceCore Contributors</Authors>
+    <Company>SalesforceCore</Company>
+    <Product>SalesforceCore.AspNetCore</Product>
+    <Description>ASP.NET Core MVC integration for SalesforceCore. Provides ready-to-use controllers, views, tag helpers, and middleware for building Salesforce-powered web applications. Features dynamic form generation, smart lookup fields, file management, and OAuth2 authentication.</Description>
+    <PackageTags>salesforce;aspnetcore;mvc;razor;taghelpers;crm;dynamic-forms;oauth2</PackageTags>
+    <PackageProjectUrl>https://github.com/salesforcecore/salesforce-core</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/salesforcecore/salesforce-core</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Copyright>Copyright (c) 2024 SalesforceCore Contributors</Copyright>
+
+    <!-- Build Settings -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+
+    <!-- Embed static files and views -->
+    <StaticWebAssetBasePath>_salesforce</StaticWebAssetBasePath>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+
+    <!-- Assembly Info -->
+    <AssemblyName>SalesforceCore.AspNetCore</AssemblyName>
+    <RootNamespace>SalesforceCore.AspNetCore</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SalesforceCore\SalesforceCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0-*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**\*" />
+  </ItemGroup>
+
+</Project>

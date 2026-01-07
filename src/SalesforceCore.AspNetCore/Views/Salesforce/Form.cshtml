@@ -1,0 +1,180 @@
+@model FormViewModel
+@{
+    ViewData["Title"] = $"{(Model.IsCreate ? "New" : "Edit")} {Model.ObjectLabel}";
+    var enableHtmx = Model.MvcOptions.EnableHtmx;
+    var staticFilesPath = string.IsNullOrWhiteSpace(Model.MvcOptions.StaticFilesPath)
+        ? "/_salesforce"
+        : Model.MvcOptions.StaticFilesPath.TrimEnd('/');
+    if (!staticFilesPath.StartsWith("/"))
+    {
+        staticFilesPath = "/" + staticFilesPath;
+    }
+    var formAction = Model.IsCreate
+        ? Url.Action("Create", new { sObject = Model.SObject })
+        : Url.Action("Edit", new { sObject = Model.SObject, id = Model.RecordId });
+    var formAttributes = new Dictionary<string, object?>
+    {
+        ["id"] = "sf-record-form"
+    };
+    if (enableHtmx)
+    {
+        formAttributes["hx-post"] = formAction ?? string.Empty;
+        formAttributes["hx-indicator"] = ".sf-loading";
+    }
+}
+
+<div class="sf-form-container">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-2">
+                    <li class="breadcrumb-item">
+                        <a href="@Url.Action("Index", new { sObject = Model.SObject })">@(Model.ModuleConfig?.PluralLabel ?? Model.ObjectLabel + "s")</a>
+                    </li>
+                    @if (Model.IsEdit && Model.RecordId != null)
+                    {
+                        <li class="breadcrumb-item">
+                            <a href="@Url.Action("Details", new { sObject = Model.SObject, id = Model.RecordId })">@(Model.Record["Name"]?.ToString() ?? Model.RecordId)</a>
+                        </li>
+                    }
+                    <li class="breadcrumb-item active" aria-current="page">@(Model.IsCreate ? "New" : "Edit")</li>
+                </ol>
+            </nav>
+            <h1 class="h3 mb-0">
+                @if (Model.ModuleConfig?.Icon != null)
+                {
+                    <i class="@Model.ModuleConfig.Icon me-2"></i>
+                }
+                @(Model.IsCreate ? "New" : "Edit") @Model.ObjectLabel
+            </h1>
+        </div>
+    </div>
+
+    <!-- Error Messages -->
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Form -->
+    @using (Html.BeginForm(
+        Model.IsCreate ? "Create" : "Edit",
+        "Salesforce",
+        Model.IsCreate
+            ? new { sObject = Model.SObject }
+            : new { sObject = Model.SObject, id = Model.RecordId },
+        FormMethod.Post,
+        false,
+        formAttributes))
+    {
+        @Html.AntiForgeryToken()
+
+        @if (Model.FormSections?.Count > 0)
+        {
+            <!-- Sectioned Form Layout -->
+            @foreach (var section in Model.FormSections)
+            {
+                var sectionId = section.Title.Replace(" ", "-");
+                <div class="card mb-4 sf-form-section">
+                    @if (section.Collapsible)
+                    {
+                        <div class="card-header cursor-pointer"
+                             data-bs-toggle="collapse"
+                             data-bs-target="#section-@sectionId">
+                            <h5 class="mb-0">
+                                @(section.Title)
+                                <i class="fas fa-chevron-down float-end"></i>
+                            </h5>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="card-header">
+                            <h5 class="mb-0">@(section.Title)</h5>
+                        </div>
+                    }
+                    <div class="@(section.Collapsible ? "collapse" : "") @(section.Collapsed ? "" : "show")"
+                         id="section-@sectionId">
+                        <div class="card-body">
+                            <div class="row">
+                                @foreach (var fieldName in section.Fields)
+                                {
+                                    var field = Model.FieldDefinitions.GetValueOrDefault(fieldName);
+                                    if (field == null) continue;
+
+                                    var colClass = section.Columns == 1 ? "col-12" : section.Columns == 3 ? "col-md-4" : "col-md-6";
+
+                                    <div class="@colClass mb-3">
+                                        @await Html.PartialAsync("_FieldInput", new FieldInputModel
+                                        {
+                                            Field = field,
+                                            Value = Model.GetFieldValue(fieldName),
+                                            LookupDisplayName = Model.GetLookupDisplayName(fieldName),
+                                            FieldOverride = Model.GetFieldOverride(fieldName),
+                                            IsCreate = Model.IsCreate
+                                        })
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <!-- Auto-generated Form Layout -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">@Model.ObjectLabel Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        @foreach (var field in Model.Fields.Where(f => !f.IsCompound && !f.DeprecatedAndHidden))
+                        {
+                            var fieldOverride = Model.GetFieldOverride(field.Name);
+                            if (fieldOverride?.Hidden == true) continue;
+
+                            <div class="col-md-6 mb-3">
+                                @await Html.PartialAsync("_FieldInput", new FieldInputModel
+                                {
+                                    Field = field,
+                                    Value = Model.GetFieldValue(field.Name),
+                                    LookupDisplayName = Model.GetLookupDisplayName(field.Name),
+                                    FieldOverride = fieldOverride,
+                                    IsCreate = Model.IsCreate
+                                })
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Form Actions -->
+        <div class="card">
+            <div class="card-body d-flex justify-content-between">
+                <a href="@(Model.IsEdit && Model.RecordId != null ? Url.Action("Details", new { sObject = Model.SObject, id = Model.RecordId }) : Url.Action("Index", new { sObject = Model.SObject }))"
+                   class="btn btn-outline-secondary">
+                    <i class="fas fa-times me-1"></i> Cancel
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <span class="sf-loading d-none">
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    </span>
+                    <i class="fas fa-save me-1 sf-loading-hide"></i>
+                    @(Model.IsCreate ? "Create" : "Save Changes")
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script src="@staticFilesPath/js/salesforce-forms.js"></script>
+    <script src="@staticFilesPath/js/salesforce-lookup.js"></script>
+}

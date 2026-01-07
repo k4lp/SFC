@@ -1,0 +1,887 @@
+/**
+ * SalesforceCore Styles
+ * Modern, clean styles for Salesforce integration components
+ */
+
+/* ============================================
+   CSS Variables
+   ============================================ */
+:root {
+    --sf-primary: #0176d3;
+    --sf-primary-hover: #014486;
+    --sf-success: #2e844a;
+    --sf-warning: #fe9339;
+    --sf-danger: #c23934;
+    --sf-info: #16325c;
+    --sf-light: #f3f3f3;
+    --sf-dark: #16325c;
+    --sf-border: #d8dde6;
+    --sf-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    --sf-radius: 0.25rem;
+    --sf-transition: 0.2s ease;
+}
+
+/* ============================================
+   List View Styles
+   ============================================ */
+.sf-list-container {
+    margin-bottom: 2rem;
+}
+
+.sf-list-container .table th {
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    color: var(--sf-info);
+    background-color: var(--sf-light);
+    border-bottom: 2px solid var(--sf-border);
+}
+
+.sf-list-container .table td {
+    vertical-align: middle;
+    padding: 0.75rem;
+}
+
+.sf-list-container .table tbody tr:hover {
+    background-color: #f0f6ff;
+}
+
+.sf-list-container .table a {
+    color: var(--sf-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.sf-list-container .table a:hover {
+    text-decoration: underline;
+    color: var(--sf-primary-hover);
+}
+
+/* ============================================
+   Details View Styles
+   ============================================ */
+.sf-details-container .sf-field-value {
+    font-size: 1rem;
+    color: var(--sf-dark);
+    min-height: 1.5rem;
+}
+
+.sf-details-container .sf-textarea-value {
+    white-space: pre-wrap;
+    background-color: var(--sf-light);
+    padding: 0.75rem;
+    border-radius: var(--sf-radius);
+    font-family: inherit;
+}
+
+/* ============================================
+   Form Styles
+   ============================================ */
+.sf-form-container .card {
+    border: 1px solid var(--sf-border);
+    box-shadow: var(--sf-shadow);
+}
+
+.sf-form-container .card-header {
+    background-color: var(--sf-light);
+    border-bottom: 1px solid var(--sf-border);
+    font-weight: 600;
+}
+
+.sf-field-wrapper {
+    margin-bottom: 1rem;
+}
+
+.sf-field-wrapper label {
+    font-weight: 500;
+    margin-bottom: 0.375rem;
+    color: var(--sf-info);
+}
+
+.sf-field-wrapper .form-control:focus,
+.sf-field-wrapper .form-select:focus {
+    border-color: var(--sf-primary);
+    box-shadow: 0 0 0 0.2rem rgba(1, 118, 211, 0.25);
+}
+
+.sf-field-wrapper .text-danger {
+    color: var(--sf-danger) !important;
+}
+
+/* Form Sections */
+.sf-form-section .card-header.cursor-pointer {
+    cursor: pointer;
+}
+
+.sf-form-section .card-header.cursor-pointer:hover {
+    background-color: #e9ecef;
+}
+
+/* Required field indicator */
+.sf-field-wrapper label .text-danger {
+    margin-left: 0.125rem;
+}
+
+/* ============================================
+   Lookup Field Styles
+   ============================================ */
+.sf-lookup-container {
+    position: relative;
+}
+
+.sf-lookup-container .input-group {
+    flex-wrap: nowrap;
+}
+
+.sf-lookup-search {
+    border-radius: var(--sf-radius) 0 0 var(--sf-radius);
+}
+
+.sf-lookup-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    max-height: 300px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid var(--sf-border);
+    border-top: none;
+    border-radius: 0 0 var(--sf-radius) var(--sf-radius);
+    box-shadow: var(--sf-shadow);
+    display: none;
+}
+
+.sf-lookup-results.show {
+    display: block;
+}
+
+.sf-lookup-item {
+    padding: 0.75rem 1rem;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--sf-transition);
+}
+
+.sf-lookup-item:hover,
+.sf-lookup-item.active {
+    background-color: #f0f6ff;
+}
+
+.sf-lookup-item .fw-medium {
+    color: var(--sf-dark);
+}
+
+.sf-lookup-item small {
+    font-size: 0.75rem;
+}
+
+.sf-lookup-flash {
+    animation: sf-flash 0.5s ease;
+}
+
+@keyframes sf-flash {
+    0%, 100% { background-color: transparent; }
+    50% { background-color: #d1fae5; }
+}
+
+.sf-lookup-selected .sf-lookup-search {
+    background-color: #f0fdf4;
+    border-color: var(--sf-success);
+}
+
+/* Clear button */
+.sf-lookup-clear {
+    border-left: none;
+}
+
+.sf-lookup-view {
+    border-left: none;
+}
+
+/* ============================================
+   Address Field Styles
+   ============================================ */
+.sf-address-container {
+    background-color: var(--sf-light);
+    padding: 1rem;
+    border-radius: var(--sf-radius);
+    border: 1px solid var(--sf-border);
+}
+
+.sf-address-container .btn-group {
+    margin-bottom: 1rem;
+}
+
+.sf-address-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+/* ============================================
+   Loading States
+   ============================================ */
+.sf-loading {
+    display: none;
+}
+
+.htmx-request .sf-loading {
+    display: inline-block;
+}
+
+.htmx-request .sf-loading-hide {
+    display: none;
+}
+
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity var(--sf-transition);
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+/* ============================================
+   Pagination Styles
+   ============================================ */
+.sf-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background-color: var(--sf-light);
+    border-top: 1px solid var(--sf-border);
+}
+
+.sf-pagination .btn-group .btn {
+    min-width: 100px;
+}
+
+/* ============================================
+   File Gallery Styles
+   ============================================ */
+.sf-file-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.sf-file-item {
+    position: relative;
+    border: 1px solid var(--sf-border);
+    border-radius: var(--sf-radius);
+    overflow: hidden;
+    transition: transform var(--sf-transition), box-shadow var(--sf-transition);
+}
+
+.sf-file-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.sf-file-item img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+}
+
+.sf-file-item .sf-file-info {
+    padding: 0.5rem;
+    background: white;
+}
+
+.sf-file-item .sf-file-name {
+    font-weight: 500;
+    font-size: 0.875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sf-file-item .sf-file-meta {
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+/* ============================================
+   Toast Notifications
+   ============================================ */
+.toast-container {
+    z-index: 1100;
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+@media (max-width: 768px) {
+    .sf-list-container .table-responsive {
+        font-size: 0.875rem;
+    }
+
+    .sf-form-container .row > .col-md-6 {
+        margin-bottom: 0.5rem;
+    }
+
+    .sf-details-container .row > .col-md-6 {
+        margin-bottom: 1rem;
+    }
+
+    .sf-address-container .row > .col-md-6 {
+        margin-bottom: 0.75rem;
+    }
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+@media print {
+    .sf-lookup-results,
+    .sf-lookup-clear,
+    .sf-lookup-view,
+    .btn-group,
+    .sf-address-actions {
+        display: none !important;
+    }
+
+    .sf-details-container .card {
+        border: none;
+        box-shadow: none;
+    }
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+.sf-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sf-badge-polymorphic {
+    background-color: var(--sf-info);
+    color: white;
+    font-size: 0.65rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.sf-empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6b7280;
+}
+
+.sf-empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* ============================================
+   Lookup Dropdown Styles (Enhanced)
+   ============================================ */
+.sf-lookup-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    background: white;
+    border: 1px solid var(--sf-border);
+    border-radius: 0 0 var(--sf-radius) var(--sf-radius);
+    box-shadow: var(--sf-shadow);
+    max-height: 300px;
+    overflow-y: auto;
+    margin-top: 2px;
+}
+
+.sf-lookup-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.sf-lookup-icon {
+    position: absolute;
+    right: 36px;
+    color: #6b7280;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+}
+
+.sf-lookup-loading {
+    padding: 12px;
+    text-align: center;
+    color: #6b7280;
+}
+
+.sf-lookup-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--sf-border);
+    border-top-color: var(--sf-primary);
+    border-radius: 50%;
+    animation: sf-spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+@keyframes sf-spin {
+    to { transform: rotate(360deg); }
+}
+
+.sf-lookup-item-name {
+    font-weight: 500;
+    color: var(--sf-dark);
+}
+
+.sf-lookup-item-type {
+    font-size: 0.75rem;
+    color: #6b7280;
+    background: var(--sf-light);
+    padding: 2px 6px;
+    border-radius: var(--sf-radius);
+    margin-left: 8px;
+    display: inline-block;
+}
+
+.sf-lookup-item-subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.sf-lookup-empty {
+    padding: 12px;
+    text-align: center;
+    color: #6b7280;
+}
+
+.sf-lookup-item-active {
+    background-color: #f0f6ff;
+}
+
+/* ============================================
+   Field Group Styles
+   ============================================ */
+.sf-field-group {
+    margin-bottom: 1rem;
+}
+
+.sf-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+.sf-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--sf-border);
+    border-radius: var(--sf-radius);
+    font-size: 1rem;
+    transition: border-color var(--sf-transition), box-shadow var(--sf-transition);
+}
+
+.sf-input:focus {
+    outline: none;
+    border-color: var(--sf-primary);
+    box-shadow: 0 0 0 3px rgba(1, 118, 211, 0.2);
+}
+
+.sf-input:disabled,
+.sf-input[readonly] {
+    background-color: var(--sf-light);
+    cursor: not-allowed;
+}
+
+.sf-help-text {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+.sf-validation-message {
+    font-size: 0.875rem;
+    color: var(--sf-danger);
+    margin-top: 0.25rem;
+    display: block;
+}
+
+/* ============================================
+   Model Form Styles
+   ============================================ */
+.sf-model-form {
+    max-width: 100%;
+}
+
+.sf-form-fields {
+    margin-bottom: 1rem;
+}
+
+.sf-form-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.sf-form-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sf-border);
+}
+
+.sf-btn-primary {
+    padding: 0.5rem 1.5rem;
+    background-color: var(--sf-primary);
+    color: white;
+    border: none;
+    border-radius: var(--sf-radius);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color var(--sf-transition);
+}
+
+.sf-btn-primary:hover {
+    background-color: var(--sf-primary-hover);
+}
+
+.sf-btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sf-btn-secondary {
+    padding: 0.5rem 1.5rem;
+    background-color: transparent;
+    color: var(--sf-dark);
+    border: 1px solid var(--sf-border);
+    border-radius: var(--sf-radius);
+    font-size: 1rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color var(--sf-transition);
+}
+
+.sf-btn-secondary:hover {
+    background-color: var(--sf-light);
+}
+
+/* ============================================
+   Toast Notification Styles (Enhanced)
+   ============================================ */
+.sf-toast-container {
+    position: fixed;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    max-width: 400px;
+    pointer-events: none;
+}
+
+.sf-toast-container > * {
+    pointer-events: auto;
+}
+
+.sf-toast-top-right {
+    top: 0;
+    right: 0;
+}
+
+.sf-toast-top-left {
+    top: 0;
+    left: 0;
+}
+
+.sf-toast-bottom-right {
+    bottom: 0;
+    right: 0;
+}
+
+.sf-toast-bottom-left {
+    bottom: 0;
+    left: 0;
+}
+
+.sf-toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: white;
+    border-radius: var(--sf-radius);
+    box-shadow: var(--sf-shadow);
+    border-left: 4px solid;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.sf-toast-visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.sf-toast-hiding {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+.sf-toast-success {
+    border-left-color: var(--sf-success);
+}
+
+.sf-toast-success .sf-toast-icon {
+    color: var(--sf-success);
+}
+
+.sf-toast-error {
+    border-left-color: var(--sf-danger);
+}
+
+.sf-toast-error .sf-toast-icon {
+    color: var(--sf-danger);
+}
+
+.sf-toast-warning {
+    border-left-color: var(--sf-warning);
+}
+
+.sf-toast-warning .sf-toast-icon {
+    color: var(--sf-warning);
+}
+
+.sf-toast-info {
+    border-left-color: var(--sf-info);
+}
+
+.sf-toast-info .sf-toast-icon {
+    color: var(--sf-info);
+}
+
+.sf-toast-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.sf-toast-message {
+    flex: 1;
+    color: var(--sf-dark);
+    font-size: 0.9375rem;
+    line-height: 1.4;
+}
+
+.sf-toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font-size: 1.25rem;
+    line-height: 1;
+    color: #6b7280;
+    transition: color var(--sf-transition);
+}
+
+.sf-toast-close:hover {
+    color: var(--sf-dark);
+}
+
+/* ============================================
+   Related List Styles
+   ============================================ */
+.sf-related-list {
+    margin-bottom: 1.5rem;
+}
+
+.sf-related-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--sf-light);
+    border: 1px solid var(--sf-border);
+    border-bottom: none;
+    border-radius: var(--sf-radius) var(--sf-radius) 0 0;
+}
+
+.sf-related-list-title {
+    font-weight: 600;
+    color: var(--sf-dark);
+    margin: 0;
+}
+
+.sf-related-list-count {
+    color: #6b7280;
+    font-weight: normal;
+    font-size: 0.875rem;
+    margin-left: 0.5rem;
+}
+
+.sf-related-list-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.sf-related-list-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--sf-border);
+    border-top: none;
+}
+
+.sf-related-list-table th,
+.sf-related-list-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--sf-border);
+}
+
+.sf-related-list-table th {
+    font-weight: 500;
+    color: #6b7280;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.sf-related-list-table tr:last-child td {
+    border-bottom: none;
+}
+
+.sf-related-list-table tbody tr:hover {
+    background-color: var(--sf-light);
+}
+
+.sf-related-list-empty {
+    padding: 2rem;
+    text-align: center;
+    color: #6b7280;
+    border: 1px solid var(--sf-border);
+    border-top: none;
+}
+
+.sf-related-list-footer {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--sf-border);
+    border-top: none;
+    border-radius: 0 0 var(--sf-radius) var(--sf-radius);
+    text-align: center;
+}
+
+.sf-related-list-footer a {
+    color: var(--sf-primary);
+    text-decoration: none;
+}
+
+.sf-related-list-footer a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================
+   Validation Summary Styles
+   ============================================ */
+.sf-validation-summary {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: var(--sf-radius);
+    color: var(--sf-danger);
+}
+
+.sf-validation-summary ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.sf-validation-summary li {
+    margin-bottom: 0.25rem;
+}
+
+.sf-validation-summary li:last-child {
+    margin-bottom: 0;
+}
+
+/* ============================================
+   Picklist Styles
+   ============================================ */
+.sf-picklist {
+    width: 100%;
+}
+
+/* ============================================
+   Additional Utilities
+   ============================================ */
+.sf-text-danger {
+    color: var(--sf-danger);
+}
+
+.sf-text-success {
+    color: var(--sf-success);
+}
+
+.sf-text-warning {
+    color: var(--sf-warning);
+}
+
+.sf-text-info {
+    color: var(--sf-info);
+}
+
+.sf-text-muted {
+    color: #6b7280;
+}
+
+.sf-required {
+    color: var(--sf-danger);
+}
+
+/* ============================================
+   Dark Mode Support (Optional)
+   ============================================ */
+@media (prefers-color-scheme: dark) {
+    .sf-dark-mode {
+        --sf-light: #1f2937;
+        --sf-dark: #f9fafb;
+        --sf-border: #374151;
+    }
+
+    .sf-dark-mode .card,
+    .sf-dark-mode .table,
+    .sf-dark-mode .sf-lookup-results,
+    .sf-dark-mode .sf-lookup-dropdown {
+        background-color: #111827;
+        color: #f9fafb;
+    }
+
+    .sf-dark-mode .sf-lookup-item:hover,
+    .sf-dark-mode .sf-lookup-item-active,
+    .sf-dark-mode .table tbody tr:hover {
+        background-color: #1f2937;
+    }
+
+    .sf-dark-mode .sf-toast {
+        background-color: #1f2937;
+    }
+
+    .sf-dark-mode .sf-toast-message {
+        color: #f9fafb;
+    }
+}
