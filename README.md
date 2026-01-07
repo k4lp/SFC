@@ -685,15 +685,12 @@ public class Account
 
 ```bash
 # Core library (required)
-dotnet add package SalesforceCore
 
 # ASP.NET Core integration (recommended for web apps)
-dotnet add package SalesforceCore.AspNetCore
 
 # CLI tool (optional, global installation)
-dotnet tool install -g SalesforceCore.ModelGenerator
 ```
-
+NOT YET PUBLISHED!
 ### Package Dependencies
 
 The core library has minimal dependencies:
