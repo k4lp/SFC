@@ -23,6 +23,11 @@ public class ClientCredentialsTokenProvider : ITokenProvider
 
     private const string CacheKey = "sf_client_cred_token";
     private readonly TimeSpan _expiryBuffer = TimeSpan.FromMinutes(5);
+    
+    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     /// <summary>
     /// Creates a new ClientCredentialsTokenProvider.
@@ -151,8 +156,7 @@ public class ClientCredentialsTokenProvider : ITokenProvider
             throw new SalesforceAuthException($"Client Credentials authentication failed: {responseContent}");
         }
 
-        var tokenResponse = JsonSerializer.Deserialize<ClientCredentialsTokenResponse>(responseContent,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var tokenResponse = JsonSerializer.Deserialize<ClientCredentialsTokenResponse>(responseContent, _jsonSerializerOptions);
 
         if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
         {
