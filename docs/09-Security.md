@@ -76,6 +76,7 @@ All security features are **enabled by default**:
 public class SalesforceOptions
 {
     public bool EnforceFieldLevelSecurity { get; set; } = true;  // Default: ON
+    public FlsEnforcementMode FlsEnforcementMode { get; set; } = FlsEnforcementMode.Silent; // Silent, Strict, None
     public bool ValidateSoqlInputs { get; set; } = true;         // Default: ON (basic raw SOQL validation)
     public bool ForceSecureCookie { get; set; } = true;          // Default: ON
     public string SessionCookieName { get; set; } = "__Host-SalesforceSession"; // Secure prefix
@@ -339,6 +340,27 @@ var data = new Dictionary<string, object?>
 };
 
 // Only Name and Industry are sent to Salesforce
+await dataService.CreateRecordAsync("Account", data);
+```
+
+### FLS Enforcement Modes
+
+The `FlsEnforcementMode` setting controls how violations are handled:
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `Silent` | Fields quietly dropped (default) | Production - graceful degradation |
+| `Strict` | `FlsException` thrown with details | Development - catch issues early |
+| `None` | No filtering performed | Testing or Salesforce-side enforcement |
+
+```csharp
+// Enable strict mode to catch permission issues during development
+services.AddSalesforceCore(options => {
+    options.EnforceFieldLevelSecurity = true;
+    options.FlsEnforcementMode = FlsEnforcementMode.Strict;
+});
+
+// In Strict mode, this throws FlsException listing "SystemModstamp", "CreatedById"
 await dataService.CreateRecordAsync("Account", data);
 ```
 

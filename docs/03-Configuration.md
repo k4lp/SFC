@@ -254,7 +254,8 @@ The `Salesforce` section contains all core library settings.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `EnforceFieldLevelSecurity` | `bool` | `true` | Enforce Salesforce Field Level Security. |
+| `EnforceFieldLevelSecurity` | `bool` | `true` | Enforce Salesforce Field Level Security. When false, `FlsEnforcementMode` is ignored. |
+| `FlsEnforcementMode` | `enum` | `Silent` | How to handle FLS violations: `Silent` (drop fields quietly), `Strict` (throw exception), `None` (bypass checks). |
 | `ValidateSoqlInputs` | `bool` | `true` | Validate and sanitize SOQL inputs. |
 | `LookupSearchLimit` | `int` | `15` | Maximum lookup search results. |
 
