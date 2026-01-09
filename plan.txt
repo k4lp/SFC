@@ -1,0 +1,399 @@
+================================================================================
+FLS ENFORCEMENT MODE - GRANULAR IMPLEMENTATION PLAN
+================================================================================
+
+PHASE 1: CONFIGURATION (SalesforceOptions.cs)
+--------------------------------------------------------------------------------
+
+Step 1.1: Add FlsEnforcementMode Enum
+  File: src/SalesforceCore/Models/Configuration/SalesforceOptions.cs
+  Location: After line 293 (before #region Bulk API Options)
+  
+  Add:
+  ```csharp
+  /// <summary>
+  /// Field Level Security enforcement behavior.
+  /// </summary>
+  public enum FlsEnforcementMode
+  {
+      /// <summary>Silently drop inaccessible fields (default, backward compatible).</summary>
+      Silent,
+      /// <summary>Throw FlsException when inaccessible fields are encountered.</summary>
+      Strict,
+      /// <summary>Bypass FLS checks entirely (use with caution).</summary>
+      None
+  }
+  ```
+
+Step 1.2: Add FlsEnforcementMode Property to SalesforceOptions
+  File: src/SalesforceCore/Models/Configuration/SalesforceOptions.cs
+  Location: After line 231 (after EnforceFieldLevelSecurity property)
+  
+  Add:
+  ```csharp
+  /// <summary>
+  /// Controls how FLS violations are handled during data operations.
+  /// Default: Silent (for backward compatibility).
+  /// </summary>
+  public FlsEnforcementMode FlsEnforcementMode { get; set; } = FlsEnforcementMode.Silent;
+  ```
+
+Cross-Verification 1.1:
+  - Check: Does EnforceFieldLevelSecurity (line 231) conflict with this?
+  - Result: No conflict. EnforceFieldLevelSecurity is a boolean toggle.
+           FlsEnforcementMode controls HOW violations are handled when enabled.
+  - Action: Consider deprecating EnforceFieldLevelSecurity in favor of FlsEnforcementMode.None
+
+================================================================================
+
+PHASE 2: DATASERVICE UPDATES (DataService.cs)
+--------------------------------------------------------------------------------
+
+Step 2.1: Inject SalesforceOptions into DataService
+  File: src/SalesforceCore/Services/Data/DataService.cs
+  Status: ALREADY DONE (line 25: _options field, line 38: injected via constructor)
+
+Step 2.2: Update FilterPayload Method
+  File: src/SalesforceCore/Services/Data/DataService.cs
+  Location: Lines 1227-1261
+  
+  Current Behavior: Logs dropped fields via LogDroppedFields
+  New Behavior:
+  - If _options.FlsEnforcementMode == Strict && droppedFields.Count > 0:
+      throw new FlsException(droppedFields.Select(f => new FlsViolation(...)))
+  - If _options.FlsEnforcementMode == None:
+      Skip filtering entirely (return data as-is)
+  
+  Code Change:
+  ```csharp
+  // At start of method, check for None mode
+  if (_options.FlsEnforcementMode == FlsEnforcementMode.None)
+  {
+      return new Dictionary<string, object?>(data);
+  }
+  
+  // Before return, check for Strict mode
+  if (_options.FlsEnforcementMode == FlsEnforcementMode.Strict && droppedFields.Count > 0)
+  {
+      var violations = droppedFields.Select(f => new FlsViolation(
+          f, f, operation == "create" ? FlsOperation.Create : FlsOperation.Update,
+          $"Field '{f}' is not accessible for {operation} on {sObject}.")).ToList();
+      throw new FlsException(violations);
+  }
+  
+  LogDroppedFields(sObject, droppedFields, operation);
+  ```
+
+Step 2.3: Update FilterRecordBatch Method
+  File: src/SalesforceCore/Services/Data/DataService.cs
+  Location: Lines 1263-1304
+  
+  Apply same changes as Step 2.2.
+
+Cross-Verification 2.1:
+  - Check: FlsException is defined in FieldLevelSecurity.cs (lines 455-475)
+  - Result: Yes, FlsException exists with constructor accepting IEnumerable<FlsViolation>
+  - Action: Add using directive if not present
+
+Cross-Verification 2.2:
+  - Check: Does BulkService use FilterRecordBatch?
+  - Files checked: 
+    - ExecuteBulkInsertAsync (line 777) - YES, uses FilterRecordBatch
+    - ExecuteBulkUpdateAsync (line 802) - YES, uses FilterRecordBatch
+  - Result: Bulk operations will also respect strict mode. GOOD.
+
+================================================================================
+
+PHASE 3: TYPEDDATASERVICE UPDATES (TypedDataService.cs)
+--------------------------------------------------------------------------------
+
+Step 3.1: Add IFieldLevelSecurityService Dependency
+  File: src/SalesforceCore/Services/Data/TypedDataService.cs
+  Location: Line 76-83 (constructor)
+  
+  Current:
+  ```csharp
+  private readonly IDataService _dataService;
+  public TypedDataService(IDataService dataService) { ... }
+  ```
+  
+  New:
+  ```csharp
+  private readonly IDataService _dataService;
+  private readonly IFieldLevelSecurityService? _flsService;
+  
+  public TypedDataService(IDataService dataService, IFieldLevelSecurityService? flsService = null)
+  {
+      _dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
+      _flsService = flsService;
+  }
+  ```
+
+Step 3.2: Create Helper Method for Field Filtering
+  File: src/SalesforceCore/Services/Data/TypedDataService.cs
+  Location: After constructor
+  
+  Add:
+  ```csharp
+  private async Task<List<string>> GetPermissionedFieldsAsync<T>(
+      CancellationToken cancellationToken) where T : class, new()
+  {
+      var mappedFields = SalesforceMapper.GetQueryableFields<T>().ToList();
+      
+      if (_flsService == null)
+          return mappedFields;
+      
+      var objectName = SalesforceMapper.GetObjectName<T>();
+      var readableFields = await _flsService.GetReadableFieldsAsync(objectName, cancellationToken);
+      var readableNames = new HashSet<string>(
+          readableFields.Select(f => f.Name), 
+          StringComparer.OrdinalIgnoreCase);
+      
+      return mappedFields.Where(f => 
+          f.Equals("Id", StringComparison.OrdinalIgnoreCase) || 
+          readableNames.Contains(f)).ToList();
+  }
+  ```
+
+Step 3.3: Update GetByIdAsync to Use Permissioned Fields
+  File: src/SalesforceCore/Services/Data/TypedDataService.cs
+  Location: Lines 90-125
+  
+  Change line 101:
+  FROM: var fields = SalesforceMapper.GetQueryableFields<T>().ToList();
+  TO:   var fields = await GetPermissionedFieldsAsync<T>(cancellationToken);
+
+Cross-Verification 3.1:
+  - Check: Does SalesforceQueryable use GetQueryableFields?
+  - File: Query/SalesforceQueryable.cs line 755
+  - Result: YES, BuildSoql uses SalesforceMapper.GetQueryableFields
+  - Impact: SalesforceQueryable ALSO needs to be updated for consistency
+  - Action: Add to plan (Phase 4)
+
+Cross-Verification 3.2:
+  - Check: Is IFieldLevelSecurityService registered in DI?
+  - File: Extensions/ServiceCollectionExtensions.cs
+  - Result: Need to verify registration exists
+  - Action: Add registration if missing
+
+================================================================================
+
+PHASE 4: SALESFORCEQUERYABLE UPDATES (SalesforceQueryable.cs)
+--------------------------------------------------------------------------------
+
+Step 4.1: Add FLS Support to SalesforceQueryProvider
+  File: src/SalesforceCore/Query/SalesforceQueryable.cs
+  Location: Lines 142-151 (constructor)
+  
+  This is a larger change. Consider:
+  - Option A: Inject IFieldLevelSecurityService into SalesforceQueryProvider
+  - Option B: Have SalesforceQueryProvider call IDataService which already handles FLS
+  
+  Current flow: SalesforceQueryable -> builds SOQL with all mapped fields -> DataService.QueryAsync
+  
+  Analysis: DataService.QueryAsync does NOT filter read fields (only write operations).
+  
+  Decision: Option A is needed for read queries.
+  
+  Implementation Deferred: This requires significant refactoring. 
+  Mark as ENHANCEMENT for v2.
+
+================================================================================
+
+PHASE 5: SOQLBUILDER ENHANCEMENTS (SoqlBuilder.cs)
+--------------------------------------------------------------------------------
+
+Step 5.1: Add WithFlsEnforcement Method
+  File: src/SalesforceCore/Services/Query/SoqlBuilder.cs
+  Location: After Build() method (around line 1400)
+  
+  Add:
+  ```csharp
+  /// <summary>
+  /// Validates and optionally filters selected fields based on FLS.
+  /// </summary>
+  /// <param name="flsService">The FLS service to use for validation.</param>
+  /// <param name="mode">How to handle inaccessible fields.</param>
+  /// <param name="cancellationToken">Cancellation token.</param>
+  /// <returns>This builder for chaining.</returns>
+  public async Task<SoqlBuilder> WithFlsEnforcementAsync(
+      IFieldLevelSecurityService flsService,
+      FlsEnforcementMode mode,
+      CancellationToken cancellationToken = default)
+  {
+      if (mode == FlsEnforcementMode.None)
+          return this;
+      
+      var readableFields = await flsService.GetReadableFieldsAsync(_objectName, cancellationToken);
+      var readableNames = new HashSet<string>(
+          readableFields.Select(f => f.Name), 
+          StringComparer.OrdinalIgnoreCase);
+      
+      var inaccessible = _selectFields
+          .Where(f => !readableNames.Contains(f) && !IsAggregateOrFunction(f))
+          .ToList();
+      
+      if (inaccessible.Count == 0)
+          return this;
+      
+      if (mode == FlsEnforcementMode.Strict)
+      {
+          throw new FlsException(inaccessible.Select(f => new FlsViolation(
+              f, f, FlsOperation.Read, 
+              $"Field '{f}' is not readable on {_objectName}.")));
+      }
+      
+      // Silent mode: remove inaccessible fields
+      _selectFields.RemoveAll(f => inaccessible.Contains(f));
+      return this;
+  }
+  
+  private static bool IsAggregateOrFunction(string field)
+  {
+      return field.Contains("(") || field.StartsWith("COUNT", StringComparison.OrdinalIgnoreCase);
+  }
+  ```
+
+Cross-Verification 5.1:
+  - Check: Does this require using directive for IFieldLevelSecurityService?
+  - Result: Need to add: using SalesforceCore.Security;
+  
+Cross-Verification 5.2:
+  - Check: Is FlsEnforcementMode accessible from SoqlBuilder namespace?
+  - Result: Need to add: using SalesforceCore.Models.Configuration;
+
+================================================================================
+
+PHASE 6: DOCUMENTATION UPDATES
+--------------------------------------------------------------------------------
+
+Step 6.1: Update Security/Explanation.md
+  File: src/SalesforceCore/Security/Explanation.md
+  
+  Add new section after "Design Decisions":
+  ```markdown
+  ## 4. FLS Enforcement Modes
+  
+  The `FlsEnforcementMode` setting in `SalesforceOptions` controls behavior:
+  
+  | Mode   | Read Operations          | Write Operations         |
+  |--------|--------------------------|--------------------------|
+  | Silent | Fields quietly excluded  | Fields quietly dropped   |
+  | Strict | FlsException thrown      | FlsException thrown      |
+  | None   | No checks performed      | No checks performed      |
+  
+  **Recommendation**: Use `Strict` mode in development to catch permission issues early.
+  Use `Silent` mode in production for graceful degradation.
+  ```
+
+Step 6.2: Update Services/Data/Explanation.md
+  File: src/SalesforceCore/Services/Data/Explanation.md
+  Location: Line 11 (Automatic FLS Checks bullet)
+  
+  Update to:
+  ```markdown
+  - **Automatic FLS Checks**: Before sending data, it consults `ISchemaService` to filter out fields 
+    that the user doesn't have permission to create or update. Behavior depends on `FlsEnforcementMode`:
+    - `Silent`: Inaccessible fields are quietly removed (default, backward compatible).
+    - `Strict`: Throws `FlsException` listing all inaccessible fields.
+    - `None`: No filtering; Salesforce API will return errors for inaccessible fields.
+  ```
+
+================================================================================
+
+PHASE 7: DI REGISTRATION VERIFICATION
+--------------------------------------------------------------------------------
+
+Step 7.1: Verify IFieldLevelSecurityService Registration
+  File: src/SalesforceCore/Extensions/ServiceCollectionExtensions.cs
+  
+  Search for: FieldLevelSecurityService
+  
+  If not found, add:
+  ```csharp
+  services.AddScoped<IFieldLevelSecurityService, FieldLevelSecurityService>();
+  ```
+
+================================================================================
+
+PHASE 8: TESTING CHECKLIST
+--------------------------------------------------------------------------------
+
+Unit Test 8.1: DataService.FilterPayload with Strict Mode
+  - Setup: Mock ISchemaService to return limited createable fields
+  - Input: Dictionary with 5 fields, 2 inaccessible
+  - Expected: FlsException with 2 violations
+
+Unit Test 8.2: DataService.FilterPayload with Silent Mode  
+  - Setup: Same as 8.1
+  - Expected: Dictionary with 3 fields, no exception
+
+Unit Test 8.3: DataService.FilterPayload with None Mode
+  - Setup: Same as 8.1
+  - Expected: Dictionary with all 5 fields, no filtering
+
+Unit Test 8.4: TypedDataService.GetByIdAsync Field Filtering
+  - Setup: Mock IFieldLevelSecurityService to return subset of fields
+  - Expected: Only permitted fields requested from Salesforce
+
+Unit Test 8.5: SoqlBuilder.WithFlsEnforcementAsync Strict Mode
+  - Setup: Select 5 fields, 2 inaccessible
+  - Expected: FlsException
+
+Unit Test 8.6: SoqlBuilder.WithFlsEnforcementAsync Silent Mode
+  - Setup: Same as 8.5
+  - Expected: Build() returns query with only 3 fields
+
+================================================================================
+
+PHASE 9: BREAKING CHANGE ASSESSMENT
+--------------------------------------------------------------------------------
+
+Assessment 9.1: Existing Users
+  - Default mode is Silent (same as current behavior)
+  - NO BREAKING CHANGES for default configuration
+
+Assessment 9.2: EnforceFieldLevelSecurity Property
+  - Currently: boolean, defaults to true
+  - Conflict: If EnforceFieldLevelSecurity=false but FlsEnforcementMode=Strict?
+  - Resolution: 
+    - If EnforceFieldLevelSecurity=false, FlsEnforcementMode is ignored (behaves as None)
+    - Add XML doc comment explaining this relationship
+
+Assessment 9.3: TypedDataService Constructor Change
+  - Old: TypedDataService(IDataService)
+  - New: TypedDataService(IDataService, IFieldLevelSecurityService?)
+  - Impact: Optional parameter, backward compatible
+  - Risk: LOW
+
+================================================================================
+
+IMPLEMENTATION ORDER
+--------------------------------------------------------------------------------
+
+1. Phase 1 (Configuration) - No dependencies
+2. Phase 7 (DI Registration) - Requires Phase 1
+3. Phase 2 (DataService) - Requires Phase 1
+4. Phase 3 (TypedDataService) - Requires Phase 7
+5. Phase 5 (SoqlBuilder) - Requires Phase 1
+6. Phase 6 (Documentation) - Requires Phases 1-5
+7. Phase 8 (Testing) - Requires all above
+8. Phase 4 (SalesforceQueryable) - DEFERRED to v2
+
+================================================================================
+
+ESTIMATED EFFORT
+--------------------------------------------------------------------------------
+
+Phase 1: 15 minutes
+Phase 2: 30 minutes
+Phase 3: 30 minutes
+Phase 4: DEFERRED
+Phase 5: 30 minutes
+Phase 6: 15 minutes
+Phase 7: 10 minutes
+Phase 8: 60 minutes
+
+TOTAL: ~3 hours (excluding deferred Phase 4)
+
+================================================================================

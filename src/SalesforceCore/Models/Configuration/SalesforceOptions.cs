@@ -226,9 +226,22 @@ public class SalesforceOptions
 
     /// <summary>
     /// Enforce Salesforce Field Level Security.
+    /// When false, FlsEnforcementMode is ignored and no FLS checks are performed.
     /// Default: true
     /// </summary>
     public bool EnforceFieldLevelSecurity { get; set; } = true;
+
+    /// <summary>
+    /// Controls how Field Level Security violations are handled during data operations.
+    /// Only applies when <see cref="EnforceFieldLevelSecurity"/> is true.
+    /// Default: Silent (for backward compatibility).
+    /// </summary>
+    /// <remarks>
+    /// - Silent: Inaccessible fields are quietly removed from payloads (current behavior).
+    /// - Strict: Throws <see cref="SalesforceCore.Security.FlsException"/> when inaccessible fields are encountered.
+    /// - None: Bypasses FLS checks entirely (use with caution).
+    /// </remarks>
+    public FlsEnforcementMode FlsEnforcementMode { get; set; } = FlsEnforcementMode.Silent;
 
     /// <summary>
     /// Validate and sanitize SOQL inputs.
@@ -291,6 +304,30 @@ public class SalesforceOptions
     public TimeSpan PerAttemptTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     #endregion
+}
+
+/// <summary>
+/// Field Level Security enforcement behavior.
+/// </summary>
+public enum FlsEnforcementMode
+{
+    /// <summary>
+    /// Silently drop inaccessible fields from payloads.
+    /// This is the default behavior for backward compatibility.
+    /// </summary>
+    Silent,
+
+    /// <summary>
+    /// Throw <see cref="SalesforceCore.Security.FlsException"/> when inaccessible fields are encountered.
+    /// Use this mode during development to catch permission issues early.
+    /// </summary>
+    Strict,
+
+    /// <summary>
+    /// Bypass FLS checks entirely. Use with caution.
+    /// Salesforce API will return errors for truly inaccessible fields.
+    /// </summary>
+    None
 }
 
 /// <summary>

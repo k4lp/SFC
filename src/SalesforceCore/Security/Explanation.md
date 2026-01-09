@@ -22,3 +22,22 @@ The `src/SalesforceCore/Security` directory implements security controls, primar
 
 ## 3. Design Decisions
 - **Safety First**: The library defaults to checking permissions. `DataService` uses this service internally to prevent accidental privilege escalation (e.g., a user blindly updating a "readonly" field via a mass-assignment vulnerability).
+
+## 4. FLS Enforcement Modes
+
+The `FlsEnforcementMode` setting in `SalesforceOptions` controls how violations are handled:
+
+| Mode   | Write Operations                                | Use Case                        |
+|--------|------------------------------------------------|----------------------------------|
+| Silent | Inaccessible fields quietly dropped (default)  | Production - graceful degradation |
+| Strict | `FlsException` thrown with violation details   | Development - catch issues early |
+| None   | No FLS filtering performed                     | Testing or legacy compatibility  |
+
+**Configuration Example**:
+```csharp
+services.AddSalesforceCore(options => {
+    options.EnforceFieldLevelSecurity = true;
+    options.FlsEnforcementMode = FlsEnforcementMode.Strict;
+});
+```
+
