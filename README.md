@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=.net" alt=".NET 10"/></a>
-  <img src="https://img.shields.io/badge/tests-454%20passing-brightgreen" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-459%20passing-brightgreen" alt="Tests"/>
 </p>
 
 ---
@@ -665,7 +665,7 @@ public class Account
 |---------|-------------|
 | **OAuth 2.0 PKCE** | Secure web authentication flow |
 | **JWT Bearer** | Server-to-server authentication |
-| **Field-Level Security** | Automatic FLS enforcement |
+| **Field-Level Security** | Automatic FLS enforcement with configurable modes (Silent/Strict/None) |
 | **SOQL Injection Prevention** | Input sanitization |
 | **Rate Limit Handling** | Automatic retry with backoff |
 | **Distributed Locking** | Prevent concurrent operations |
