@@ -124,4 +124,15 @@ public interface IPermissionService
     Task PreloadPermissionsAsync(
         IEnumerable<string> objectNames,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Audits a permission manifest against the current user's permissions.
+    /// Identifies which required permissions are missing.
+    /// </summary>
+    /// <param name="manifest">The permission manifest to audit.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Audit result with missing and satisfied requirements.</returns>
+    Task<PermissionAuditResult> AuditAsync(
+        PermissionManifest manifest,
+        CancellationToken cancellationToken = default);
 }

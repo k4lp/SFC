@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using SalesforceCore.Models.Configuration;
 using SalesforceCore.Models.Data;
 using SalesforceCore.Models.Metadata;
+using SalesforceCore.Security;
 using SalesforceCore.Services.Caching;
 using SalesforceCore.Services.Core;
 using SalesforceCore.Services.Metadata;
@@ -1232,6 +1233,21 @@ public class DataService : IDataService
         bool dropNullValues,
         HashSet<string>? excludedFields = null)
     {
+        // If FLS is disabled or mode is None, bypass filtering entirely
+        if (!_options.EnforceFieldLevelSecurity || _options.FlsEnforcementMode == FlsEnforcementMode.None)
+        {
+            var bypass = new Dictionary<string, object?>();
+            foreach (var (key, value) in data)
+            {
+                if (excludedFields != null && excludedFields.Contains(key))
+                    continue;
+                if (dropNullValues && value == null)
+                    continue;
+                bypass[key] = value;
+            }
+            return bypass;
+        }
+
         var payload = new Dictionary<string, object?>();
         var droppedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -1256,6 +1272,22 @@ public class DataService : IDataService
             payload[key] = value;
         }
 
+        // In Strict mode, throw an exception if any fields were dropped
+        if (_options.FlsEnforcementMode == FlsEnforcementMode.Strict && droppedFields.Count > 0)
+        {
+            var flsOperation = operation.Equals("create", StringComparison.OrdinalIgnoreCase)
+                ? FlsOperation.Create
+                : FlsOperation.Update;
+
+            var violations = droppedFields.Select(f => new FlsViolation(
+                f,
+                f,
+                flsOperation,
+                $"Field '{f}' is not accessible for {operation} on {sObject}.")).ToList();
+
+            throw new FlsException(violations);
+        }
+
         LogDroppedFields(sObject, droppedFields, operation);
         return payload;
     }
@@ -1269,6 +1301,26 @@ public class DataService : IDataService
         HashSet<string>? excludedFields = null)
     {
         var result = new List<Dictionary<string, object?>>();
+
+        // If FLS is disabled or mode is None, bypass filtering entirely
+        if (!_options.EnforceFieldLevelSecurity || _options.FlsEnforcementMode == FlsEnforcementMode.None)
+        {
+            foreach (var record in records)
+            {
+                var bypass = new Dictionary<string, object?>();
+                foreach (var (key, value) in record)
+                {
+                    if (excludedFields != null && excludedFields.Contains(key))
+                        continue;
+                    if (dropNullValues && value == null)
+                        continue;
+                    bypass[key] = value;
+                }
+                result.Add(bypass);
+            }
+            return result;
+        }
+
         var droppedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var record in records)
@@ -1297,6 +1349,22 @@ public class DataService : IDataService
             }
 
             result.Add(payload);
+        }
+
+        // In Strict mode, throw an exception if any fields were dropped
+        if (_options.FlsEnforcementMode == FlsEnforcementMode.Strict && droppedFields.Count > 0)
+        {
+            var flsOperation = operation.Contains("insert", StringComparison.OrdinalIgnoreCase)
+                ? FlsOperation.Create
+                : FlsOperation.Update;
+
+            var violations = droppedFields.Select(f => new FlsViolation(
+                f,
+                f,
+                flsOperation,
+                $"Field '{f}' is not accessible for {operation} on {sObject}.")).ToList();
+
+            throw new FlsException(violations);
         }
 
         LogDroppedFields(sObject, droppedFields, operation);

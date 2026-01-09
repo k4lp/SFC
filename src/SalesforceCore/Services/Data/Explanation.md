@@ -8,7 +8,10 @@ The `src/SalesforceCore/Services/Data` directory contains the primary services f
 ### `IDataService` & `DataService`
 **Purpose**: The foundational, "close-to-the-metal" service for data operations. It operates primarily on `JsonNode` or `IDictionary<string, object?>`, giving developers full control over the raw data sent to and received from Salesforce.
 **Key Features**:
-- **Automatic FLS Checks**: Before sending data, it consults `ISchemaService` to filter out fields that the user doesn't have permission to create or update (Field Level Security).
+- **Automatic FLS Checks**: Before sending data, it consults `ISchemaService` to filter out fields that the user doesn't have permission to create or update. Behavior depends on `FlsEnforcementMode`:
+  - `Silent`: Inaccessible fields are quietly removed (default, backward compatible).
+  - `Strict`: Throws `FlsException` listing all inaccessible fields.
+  - `None`: No filtering; Salesforce API will return errors for inaccessible fields.
 - **Smart Batching**: Methods like `BatchCreateAsync` automatically decide whether to use the synchronous Composite API (sObject Collections) or the asynchronous Bulk API V2 based on the number of records (default threshold is 200).
 - **Resilience**: Integrated with the underlying `ISalesforceClient` which handles retries and authentication.
 

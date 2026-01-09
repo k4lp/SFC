@@ -9,14 +9,16 @@ Comprehensive security guidance for SalesforceCore - designed for government-gra
 3. [SOQL Injection Prevention](#soql-injection-prevention)
 4. [Authentication Security](#authentication-security)
 5. [Field-Level Security (FLS)](#field-level-security-fls)
-6. [Input Validation](#input-validation)
-7. [Caching Security](#caching-security)
-8. [Token Management](#token-management)
-9. [Network Security](#network-security)
-10. [Logging & Audit](#logging--audit)
-11. [File Upload Security](#file-upload-security)
-12. [Configuration Security](#configuration-security)
-13. [Compliance Checklist](#compliance-checklist)
+6. [Fluent Permission Guard](#fluent-permission-guard)
+7. [Permission Manifest / Audit](#permission-manifest--audit)
+8. [Input Validation](#input-validation)
+9. [Caching Security](#caching-security)
+10. [Token Management](#token-management)
+11. [Network Security](#network-security)
+12. [Logging & Audit](#logging--audit)
+13. [File Upload Security](#file-upload-security)
+14. [Configuration Security](#configuration-security)
+15. [Compliance Checklist](#compliance-checklist)
 
 ---
 
@@ -76,6 +78,7 @@ All security features are **enabled by default**:
 public class SalesforceOptions
 {
     public bool EnforceFieldLevelSecurity { get; set; } = true;  // Default: ON
+    public FlsEnforcementMode FlsEnforcementMode { get; set; } = FlsEnforcementMode.Silent; // Silent, Strict, None
     public bool ValidateSoqlInputs { get; set; } = true;         // Default: ON (basic raw SOQL validation)
     public bool ForceSecureCookie { get; set; } = true;          // Default: ON
     public string SessionCookieName { get; set; } = "__Host-SalesforceSession"; // Secure prefix
@@ -342,6 +345,27 @@ var data = new Dictionary<string, object?>
 await dataService.CreateRecordAsync("Account", data);
 ```
 
+### FLS Enforcement Modes
+
+The `FlsEnforcementMode` setting controls how violations are handled:
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `Silent` | Fields quietly dropped (default) | Production - graceful degradation |
+| `Strict` | `FlsException` thrown with details | Development - catch issues early |
+| `None` | No filtering performed | Testing or Salesforce-side enforcement |
+
+```csharp
+// Enable strict mode to catch permission issues during development
+services.AddSalesforceCore(options => {
+    options.EnforceFieldLevelSecurity = true;
+    options.FlsEnforcementMode = FlsEnforcementMode.Strict;
+});
+
+// In Strict mode, this throws FlsException listing "SystemModstamp", "CreatedById"
+await dataService.CreateRecordAsync("Account", data);
+```
+
 ### Query Field Filtering
 
 Fields are also filtered on read operations:
@@ -352,6 +376,102 @@ var record = await dataService.GetRecordAsync("Account", accountId);
 ```
 
 If you disable FLS enforcement, SalesforceCore will pass fields through and rely on Salesforce to reject unauthorized access.
+
+---
+
+## Fluent Permission Guard
+
+The Permission Guard API provides declarative, chainable permission checks with batch optimization.
+
+### Basic Usage
+
+```csharp
+// Check permissions before performing actions
+var result = await permissionService.Guard()
+    .Require("Account", PermissionAction.Read)
+    .RequireField("Account", "AnnualRevenue", PermissionAction.Read)
+    .EvaluateAsync();
+
+if (!result.IsAllowed)
+{
+    // Access violations with details
+    foreach (var violation in result.Violations)
+    {
+        Console.WriteLine($"Denied: {violation}");
+    }
+}
+```
+
+### OR Logic Between Groups
+
+```csharp
+// User needs EITHER Create OR Update permission
+var result = await permissionService.Guard()
+    .Require("Account", PermissionAction.Create)  // Group 1
+    .Or()
+    .Require("Account", PermissionAction.Update)  // Group 2
+    .EvaluateAsync();
+```
+
+### RequireAny / RequireAll
+
+```csharp
+// RequireAny: At least one action must be allowed
+var result = await permissionService.Guard()
+    .RequireAny("Account", PermissionAction.Create, PermissionAction.Update)
+    .EvaluateAsync();
+
+// RequireAll: All actions must be allowed
+var result = await permissionService.Guard()
+    .RequireAll("Account", PermissionAction.Read, PermissionAction.Create, PermissionAction.Update)
+    .EvaluateAsync();
+```
+
+---
+
+## Permission Manifest / Audit
+
+Define expected permissions and validate against current user access. Useful for onboarding, debugging, and pre-flight checks.
+
+### Defining a Manifest
+
+```csharp
+var manifest = PermissionManifest.Create()
+    .RequireObject("Account", PermissionAction.Read, PermissionAction.Create)
+    .RequireObject("Contact", PermissionAction.Read)
+    .RequireField("Opportunity", "Amount", PermissionAction.Update)
+    .Build();
+```
+
+### Auditing Permissions
+
+```csharp
+var audit = await permissionService.AuditAsync(manifest);
+
+if (audit.IsComplete)
+{
+    Console.WriteLine("All permissions satisfied!");
+}
+else
+{
+    Console.WriteLine($"Completion: {audit.CompletionPercentage}%");
+    
+    foreach (var missing in audit.MissingObjectPermissions)
+        Console.WriteLine($"Missing: {missing.ObjectName}.{missing.Action}");
+    
+    foreach (var missing in audit.MissingFieldPermissions)
+        Console.WriteLine($"Missing: {missing.ObjectName}.{missing.FieldName}.{missing.Action}");
+}
+```
+
+### Use Cases
+
+| Scenario | Usage |
+|----------|-------|
+| **User Onboarding** | Validate new users have required permissions |
+| **Debugging** | Identify why features are unavailable |
+| **Pre-flight Checks** | Ensure deployment target has correct setup |
+| **Admin Dashboard** | Show permission status overview |
 
 ---
 

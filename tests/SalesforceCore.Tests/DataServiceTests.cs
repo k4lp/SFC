@@ -12,6 +12,7 @@ using SalesforceCore.Models.Data;
 using SalesforceCore.Models.Configuration;
 using SalesforceCore.Services.Metadata;
 using SalesforceCore.Models.Metadata;
+using SalesforceCore.Security;
 using SalesforceCore.Utilities;
 
 namespace SalesforceCore.Tests;
@@ -720,6 +721,198 @@ public class DataServiceTests
 
         // Assert
         result.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region FLS Enforcement Mode Tests
+
+    [Fact]
+    public async Task CreateRecordAsync_WithStrictMode_ShouldThrowFlsException()
+    {
+        // Arrange
+        var options = new SalesforceOptions
+        {
+            EnforceFieldLevelSecurity = true,
+            FlsEnforcementMode = FlsEnforcementMode.Strict
+        };
+        var mockOptions = new Mock<IOptions<SalesforceOptions>>();
+        mockOptions.Setup(o => o.Value).Returns(options);
+
+        var service = new DataService(
+            _mockClient.Object,
+            _mockSchema.Object,
+            _mockBulkService.Object,
+            _mockCache.Object,
+            mockOptions.Object,
+            _mockLogger.Object);
+
+        var data = new Dictionary<string, object?>
+        {
+            { "Name", "Test Account" },
+            { "ForbiddenField", "ShouldCauseException" }
+        };
+
+        _mockSchema.Setup(s => s.GetCreateableFieldsAsync("Account", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SObjectField> { new SObjectField { Name = "Name", Createable = true } });
+
+        // Act & Assert
+        var exception = await Assert.ThrowsAsync<Security.FlsException>(() =>
+            service.CreateRecordAsync("Account", data));
+
+        exception.Violations.Should().HaveCount(1);
+        exception.Violations[0].FieldName.Should().Be("ForbiddenField");
+    }
+
+    [Fact]
+    public async Task CreateRecordAsync_WithSilentMode_ShouldDropFieldsQuietly()
+    {
+        // Arrange - using default options which have Silent mode
+        var data = new Dictionary<string, object?>
+        {
+            { "Name", "Test Account" },
+            { "ForbiddenField", "ShouldBeSilentlyDropped" }
+        };
+
+        _mockSchema.Setup(s => s.GetCreateableFieldsAsync("Account", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SObjectField> { new SObjectField { Name = "Name", Createable = true } });
+
+        var expectedResult = new CreateResult { Id = "001new", Success = true };
+        _mockClient.Setup(c => c.PostAsync<CreateResult>(
+                It.IsAny<string>(),
+                It.IsAny<object>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedResult);
+
+        // Act
+        var id = await _service.CreateRecordAsync("Account", data);
+
+        // Assert - should succeed without exception
+        id.Should().Be("001new");
+        _mockClient.Verify(c => c.PostAsync<CreateResult>(
+            It.IsAny<string>(),
+            It.Is<Dictionary<string, object?>>(d => d.ContainsKey("Name") && !d.ContainsKey("ForbiddenField")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateRecordAsync_WithNoneMode_ShouldNotFilterFields()
+    {
+        // Arrange
+        var options = new SalesforceOptions
+        {
+            EnforceFieldLevelSecurity = true,
+            FlsEnforcementMode = FlsEnforcementMode.None
+        };
+        var mockOptions = new Mock<IOptions<SalesforceOptions>>();
+        mockOptions.Setup(o => o.Value).Returns(options);
+
+        var service = new DataService(
+            _mockClient.Object,
+            _mockSchema.Object,
+            _mockBulkService.Object,
+            _mockCache.Object,
+            mockOptions.Object,
+            _mockLogger.Object);
+
+        var data = new Dictionary<string, object?>
+        {
+            { "Name", "Test Account" },
+            { "AnyField", "ShouldPassThrough" }
+        };
+
+        // Schema is still mocked but should be bypassed
+        _mockSchema.Setup(s => s.GetCreateableFieldsAsync("Account", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SObjectField> { new SObjectField { Name = "Name", Createable = true } });
+
+        var expectedResult = new CreateResult { Id = "001new", Success = true };
+        _mockClient.Setup(c => c.PostAsync<CreateResult>(
+                It.IsAny<string>(),
+                It.IsAny<object>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedResult);
+
+        // Act
+        var id = await service.CreateRecordAsync("Account", data);
+
+        // Assert - both fields should be present since None mode bypasses filtering
+        id.Should().Be("001new");
+        _mockClient.Verify(c => c.PostAsync<CreateResult>(
+            It.IsAny<string>(),
+            It.Is<Dictionary<string, object?>>(d => d.ContainsKey("Name") && d.ContainsKey("AnyField")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task BatchCreateAsync_WithStrictMode_ShouldThrowFlsException()
+    {
+        // Arrange
+        var options = new SalesforceOptions
+        {
+            EnforceFieldLevelSecurity = true,
+            FlsEnforcementMode = FlsEnforcementMode.Strict
+        };
+        var mockOptions = new Mock<IOptions<SalesforceOptions>>();
+        mockOptions.Setup(o => o.Value).Returns(options);
+
+        var service = new DataService(
+            _mockClient.Object,
+            _mockSchema.Object,
+            _mockBulkService.Object,
+            _mockCache.Object,
+            mockOptions.Object,
+            _mockLogger.Object);
+
+        var records = new List<IDictionary<string, object?>>
+        {
+            new Dictionary<string, object?> { { "Name", "Account 1" }, { "ForbiddenField", "Bad" } }
+        };
+
+        _mockSchema.Setup(s => s.GetCreateableFieldsAsync("Account", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SObjectField> { new SObjectField { Name = "Name", Createable = true } });
+
+        // Act & Assert
+        var exception = await Assert.ThrowsAsync<Security.FlsException>(() =>
+            service.BatchCreateAsync("Account", records));
+
+        exception.Violations.Should().Contain(v => v.FieldName == "ForbiddenField");
+    }
+
+    [Fact]
+    public async Task UpdateRecordAsync_WithStrictMode_ShouldThrowFlsException()
+    {
+        // Arrange
+        var options = new SalesforceOptions
+        {
+            EnforceFieldLevelSecurity = true,
+            FlsEnforcementMode = FlsEnforcementMode.Strict
+        };
+        var mockOptions = new Mock<IOptions<SalesforceOptions>>();
+        mockOptions.Setup(o => o.Value).Returns(options);
+
+        var service = new DataService(
+            _mockClient.Object,
+            _mockSchema.Object,
+            _mockBulkService.Object,
+            _mockCache.Object,
+            mockOptions.Object,
+            _mockLogger.Object);
+
+        var data = new Dictionary<string, object?>
+        {
+            { "Name", "Updated" },
+            { "ReadOnlyField", "CannotUpdate" }
+        };
+
+        _mockSchema.Setup(s => s.GetUpdateableFieldsAsync("Account", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SObjectField> { new SObjectField { Name = "Name", Updateable = true } });
+
+        // Act & Assert
+        var exception = await Assert.ThrowsAsync<Security.FlsException>(() =>
+            service.UpdateRecordAsync("Account", "001xxx", data));
+
+        exception.Violations.Should().Contain(v => v.FieldName == "ReadOnlyField");
+        exception.Violations[0].Operation.Should().Be(Security.FlsOperation.Update);
     }
 
     #endregion

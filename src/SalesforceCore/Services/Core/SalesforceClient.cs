@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -23,6 +24,11 @@ public class SalesforceClient : ISalesforceClient
     private readonly SalesforceOptions _options;
     private readonly ILogger<SalesforceClient> _logger;
     private volatile string? _instanceUrl; // Volatile for thread-safe reads
+    
+    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     /// <summary>
     /// Creates a new SalesforceClient.
@@ -321,11 +327,7 @@ public class SalesforceClient : ISalesforceClient
 
         if (payload != null)
         {
-            var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
-            {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            });
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            request.Content = JsonContent.Create(payload, mediaType: null, options: _jsonSerializerOptions);
         }
 
         if (_options.EnableDebugLogging)
