@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=.net" alt=".NET 10"/></a>
-  <img src="https://img.shields.io/badge/tests-459%20passing-brightgreen" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-474%20passing-brightgreen" alt="Tests"/>
 </p>
 
 ---

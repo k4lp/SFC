@@ -314,6 +314,9 @@ public static class ServiceCollectionExtensions
         // Register Permission Service
         services.AddScoped<IPermissionService, PermissionService>();
 
+        // Register Permission Guard for fluent permission checks
+        services.AddScoped<IPermissionGuard, PermissionGuard>();
+
         // Register Layout Descriptor Service
         services.AddScoped<ILayoutDescriptorService, LayoutDescriptorService>();
     }

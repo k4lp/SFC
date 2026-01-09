@@ -330,6 +330,142 @@ public class PermissionService : IPermissionService
         _logger.LogInformation("Permission preload complete");
     }
 
+    /// <inheritdoc/>
+    public async Task<PermissionAuditResult> AuditAsync(
+        PermissionManifest manifest,
+        CancellationToken cancellationToken = default)
+    {
+        if (manifest == null)
+            throw new ArgumentNullException(nameof(manifest));
+
+        _logger.LogDebug("Auditing permission manifest with {ObjectReqs} object and {FieldReqs} field requirements",
+            manifest.ObjectRequirements.Count, manifest.FieldRequirements.Count);
+
+        var satisfied = new List<string>();
+        var missingObjects = new List<MissingPermission>();
+        var missingFields = new List<MissingPermission>();
+
+        // Get all unique objects needed
+        var allObjects = manifest.ObjectRequirements.Select(r => r.ObjectName)
+            .Concat(manifest.FieldRequirements.Select(r => r.ObjectName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (allObjects.Count == 0)
+        {
+            return PermissionAuditResult.Complete(Array.Empty<string>());
+        }
+
+        // Batch load all permissions
+        var context = PermissionRequestContext.ForObjects(allObjects.ToArray());
+        var permissionResult = await GetPermissionsAsync(context, cancellationToken);
+
+        // Check object requirements
+        foreach (var req in manifest.ObjectRequirements)
+        {
+            var snapshot = permissionResult.GetSnapshot(req.ObjectName);
+            if (snapshot == null)
+            {
+                // Object not accessible - all actions missing
+                foreach (var action in req.Actions)
+                {
+                    missingObjects.Add(new MissingPermission
+                    {
+                        ObjectName = req.ObjectName,
+                        Action = action,
+                        Description = req.Description
+                    });
+                }
+                continue;
+            }
+
+            foreach (var action in req.Actions)
+            {
+                var hasPermission = action switch
+                {
+                    PermissionAction.Create => snapshot.CanCreate,
+                    PermissionAction.Read => snapshot.CanRead,
+                    PermissionAction.Update => snapshot.CanUpdate,
+                    PermissionAction.Delete => snapshot.CanDelete,
+                    _ => false
+                };
+
+                if (hasPermission)
+                {
+                    satisfied.Add($"{req.ObjectName}.{action}");
+                }
+                else
+                {
+                    missingObjects.Add(new MissingPermission
+                    {
+                        ObjectName = req.ObjectName,
+                        Action = action,
+                        Description = req.Description
+                    });
+                }
+            }
+        }
+
+        // Check field requirements
+        foreach (var req in manifest.FieldRequirements)
+        {
+            var snapshot = permissionResult.GetSnapshot(req.ObjectName);
+            if (snapshot == null)
+            {
+                missingFields.Add(new MissingPermission
+                {
+                    ObjectName = req.ObjectName,
+                    FieldName = req.FieldName,
+                    Action = req.Action,
+                    Description = req.Description
+                });
+                continue;
+            }
+
+            if (!snapshot.FieldPermissions.TryGetValue(req.FieldName, out var fieldPerm))
+            {
+                missingFields.Add(new MissingPermission
+                {
+                    ObjectName = req.ObjectName,
+                    FieldName = req.FieldName,
+                    Action = req.Action,
+                    Description = req.Description
+                });
+                continue;
+            }
+
+            var hasPermission = req.Action switch
+            {
+                PermissionAction.Read => fieldPerm.CanRead,
+                PermissionAction.Create => fieldPerm.CanCreate,
+                PermissionAction.Update => fieldPerm.CanUpdate,
+                _ => false
+            };
+
+            if (hasPermission)
+            {
+                satisfied.Add($"{req.ObjectName}.{req.FieldName}.{req.Action}");
+            }
+            else
+            {
+                missingFields.Add(new MissingPermission
+                {
+                    ObjectName = req.ObjectName,
+                    FieldName = req.FieldName,
+                    Action = req.Action,
+                    Description = req.Description
+                });
+            }
+        }
+
+        _logger.LogDebug("Audit complete: {Satisfied} satisfied, {MissingObj} missing object permissions, {MissingField} missing field permissions",
+            satisfied.Count, missingObjects.Count, missingFields.Count);
+
+        return missingObjects.Count == 0 && missingFields.Count == 0
+            ? PermissionAuditResult.Complete(satisfied)
+            : PermissionAuditResult.Partial(satisfied, missingObjects, missingFields);
+    }
+
     private async Task<ObjectPermissionSnapshot> BuildPermissionSnapshotAsync(
         string objectName,
         CancellationToken cancellationToken)
