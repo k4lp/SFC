@@ -74,6 +74,54 @@ var last = await _data.Query<Account>()
 var combined = await techQuery.UnionAsync(financeQuery);
 ```
 
+### DateTime Member Translation
+
+The LINQ provider translates DateTime property access to SOQL date functions:
+
+| C# Member | SOQL Function |
+|-----------|---------------|
+| `.Year` | `CALENDAR_YEAR()` |
+| `.Month` | `CALENDAR_MONTH()` |
+| `.Day` | `DAY_IN_MONTH()` |
+| `.Hour` | `HOUR_IN_DAY()` |
+| `.DayOfYear` | `DAY_IN_YEAR()` |
+
+```csharp
+// Filter by year and month - translated to SOQL date functions
+var q4Opportunities = await _data.Query<Opportunity>()
+    .Where(o => o.CloseDate.Year == 2024 && o.CloseDate.Month > 9)
+    .ToListAsync();
+// SOQL: WHERE CALENDAR_YEAR(CloseDate) = 2024 AND CALENDAR_MONTH(CloseDate) > 9
+
+// Filter by hour (for time-based analysis)
+var morningActivities = await _data.Query<Task>()
+    .Where(t => t.CreatedDate.Hour >= 9 && t.CreatedDate.Hour < 12)
+    .ToListAsync();
+```
+
+### Locking Clauses
+
+Use locking clauses for record-level locking or tracking:
+
+| Method | SOQL Clause | Purpose |
+|--------|-------------|---------|
+| `ForUpdate()` | `FOR UPDATE` | Lock records to prevent concurrent modifications |
+| `ForView()` | `FOR VIEW` | Update `LastViewedDate` for queried records |
+| `ForReference()` | `FOR REFERENCE` | Update `LastReferencedDate` for queried records |
+
+```csharp
+// Lock records for update (pessimistic locking)
+var accounts = await _data.Query<Account>()
+    .Where(a => a.Industry == "Technology")
+    .ForUpdate()
+    .ToListAsync();
+
+// Track as recently viewed
+var viewed = await _data.Query<Account>()
+    .Where(a => a.Id == accountId)
+    .ForView()
+    .FirstOrDefaultAsync();
+
 ## Mapping Attributes (common)
 - `[SalesforceObject("Account")]` – maps class to object.
 - `[SalesforceField("Name", Required = true, MaxLength = 255)]` – field mapping + constraints.

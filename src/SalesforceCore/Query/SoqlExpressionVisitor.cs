@@ -142,6 +142,12 @@ public class SoqlExpressionVisitor : ExpressionVisitor
             return node;
         }
 
+        // Check if this is a DateTime/DateTimeOffset member access (e.g., .Year, .Month)
+        if (TryHandleDateTimeMember(node))
+        {
+            return node;
+        }
+
         if (TryGetMemberPath(node, out var path))
         {
             _whereClause.Append(SecurityUtils.SanitizeFieldName(path));
@@ -152,6 +158,49 @@ public class SoqlExpressionVisitor : ExpressionVisitor
         var memberValue = GetMemberValue(node);
         AppendValue(memberValue);
         return node;
+    }
+
+    /// <summary>
+    /// Handles DateTime/DateTimeOffset member access like .Year, .Month, .Day, .Hour.
+    /// Translates them to SOQL date functions (CALENDAR_YEAR, CALENDAR_MONTH, etc.).
+    /// </summary>
+    private bool TryHandleDateTimeMember(MemberExpression node)
+    {
+        // Check if the member is on DateTime or DateTimeOffset
+        var declaringType = node.Member.DeclaringType;
+        if (declaringType != typeof(DateTime) && 
+            declaringType != typeof(DateTimeOffset) &&
+            declaringType != typeof(DateTime?) &&
+            declaringType != typeof(DateTimeOffset?))
+        {
+            return false;
+        }
+
+        // Get the SOQL function name for this member
+        var soqlFunction = node.Member.Name switch
+        {
+            "Year" => "CALENDAR_YEAR",
+            "Month" => "CALENDAR_MONTH",
+            "Day" => "DAY_IN_MONTH",
+            "Hour" => "HOUR_IN_DAY",
+            "DayOfWeek" => "DAY_IN_WEEK",
+            "DayOfYear" => "DAY_IN_YEAR",
+            _ => null
+        };
+
+        if (soqlFunction == null)
+        {
+            return false;
+        }
+
+        // The parent expression should be the field path (e.g., x.CreatedDate)
+        if (node.Expression == null || !TryGetMemberPath(node.Expression, out var fieldPath))
+        {
+            return false;
+        }
+
+        _whereClause.Append($"{soqlFunction}({SecurityUtils.SanitizeFieldName(fieldPath)})");
+        return true;
     }
 
     protected override Expression VisitConstant(ConstantExpression node)

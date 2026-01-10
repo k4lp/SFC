@@ -343,6 +343,29 @@ These operators provide workarounds for SOQL limitations:
 | **ConcatAsync** | Concatenate all records from two queries | `query1.ConcatAsync(query2)` |
 | **ExceptAsync** | Records in first but not second | `query1.ExceptAsync(query2)` |
 | **IntersectAsync** | Records in both queries | `query1.IntersectAsync(query2)` |
+| **ForUpdate** | Lock records for update (FOR UPDATE) | `Query<Account>().ForUpdate().ToListAsync()` |
+| **ForView** | Track recently viewed (FOR VIEW) | `Query<Account>().ForView().ToListAsync()` |
+| **ForReference** | Track recently referenced (FOR REFERENCE) | `Query<Account>().ForReference().ToListAsync()` |
+
+#### DateTime Member Translation
+
+The LINQ provider translates DateTime property access to SOQL date functions:
+
+| C# Member | SOQL Function | Example |
+|-----------|---------------|---------|
+| `.Year` | `CALENDAR_YEAR()` | `x => x.CreatedDate.Year == 2024` |
+| `.Month` | `CALENDAR_MONTH()` | `x => x.CreatedDate.Month > 6` |
+| `.Day` | `DAY_IN_MONTH()` | `x => x.CreatedDate.Day == 15` |
+| `.Hour` | `HOUR_IN_DAY()` | `x => x.CreatedDate.Hour >= 9` |
+| `.DayOfYear` | `DAY_IN_YEAR()` | `x => x.CreatedDate.DayOfYear == 100` |
+
+```csharp
+// Filter by year and month
+var q4Accounts = await _data.Query<Opportunity>()
+    .Where(o => o.CloseDate.Year == 2024 && o.CloseDate.Month > 9)
+    .ToListAsync();
+// Generates: WHERE CALENDAR_YEAR(CloseDate) = 2024 AND CALENDAR_MONTH(CloseDate) > 9
+```
 
 #### LINQ-to-SOQL Examples
 

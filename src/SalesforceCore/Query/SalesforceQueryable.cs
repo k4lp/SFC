@@ -826,6 +826,20 @@ public class SalesforceQueryProvider : IQueryProvider
             soql.Offset(queryData.Offset.Value);
         }
 
+        // Add locking clauses
+        if (queryData.ForUpdate)
+        {
+            soql.ForUpdate();
+        }
+        if (queryData.ForView)
+        {
+            soql.ForView();
+        }
+        if (queryData.ForReference)
+        {
+            soql.ForReference();
+        }
+
         return soql.Build();
     }
 
@@ -1116,6 +1130,18 @@ public class SalesforceQueryProvider : IQueryProvider
                 // No-op for query translation
                 break;
 
+            case "ForUpdateInternal":
+                data.ForUpdate = true;
+                break;
+
+            case "ForViewInternal":
+                data.ForView = true;
+                break;
+
+            case "ForReferenceInternal":
+                data.ForReference = true;
+                break;
+
             default:
                 _logger.LogWarning("Queryable method '{MethodName}' is not supported by the Salesforce LINQ provider.", methodName);
                 throw new NotSupportedException($"Queryable method '{methodName}' is not supported by the Salesforce LINQ provider.");
@@ -1316,6 +1342,11 @@ public class SalesforceQueryProvider : IQueryProvider
         public string? HavingClause { get; set; }
         public List<AggregateExpression> Aggregates { get; } = new();
         public List<IncludeExpression> Includes { get; } = new();
+        
+        // Locking clause flags
+        public bool ForUpdate { get; set; }
+        public bool ForView { get; set; }
+        public bool ForReference { get; set; }
     }
 
     internal class AggregateExpression
@@ -2098,7 +2129,79 @@ public static class SalesforceQueryExtensions
         return source;
     }
 
-    #region Extended LINQ Operators (SOQL Workarounds)
+    #endregion
+
+    #region Locking Clause Extensions
+
+    /// <summary>
+    /// Adds FOR UPDATE to the query for record locking.
+    /// Use when you need to lock records to prevent concurrent modifications.
+    /// </summary>
+    /// <example>
+    /// var accounts = await _dataService.Query&lt;Account&gt;()
+    ///     .Where(a => a.Name == "Acme")
+    ///     .ForUpdate()
+    ///     .ToListAsync();
+    /// // Generates: SELECT Id, Name FROM Account WHERE Name = 'Acme' FOR UPDATE
+    /// </example>
+    public static SalesforceQueryable<T> ForUpdate<T>(this SalesforceQueryable<T> query)
+        where T : class, new()
+    {
+        var method = typeof(SalesforceQueryExtensions)
+            .GetMethod(nameof(ForUpdateInternal), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(typeof(T));
+
+        var call = Expression.Call(method, query.Expression);
+        return (SalesforceQueryable<T>)query.Provider.CreateQuery<T>(call);
+    }
+
+    /// <summary>
+    /// Adds FOR VIEW to the query to track recently viewed records.
+    /// Updates the LastViewedDate field for queried records.
+    /// </summary>
+    /// <example>
+    /// var accounts = await _dataService.Query&lt;Account&gt;()
+    ///     .Where(a => a.Industry == "Technology")
+    ///     .ForView()
+    ///     .ToListAsync();
+    /// // Generates: SELECT Id, Name FROM Account WHERE Industry = 'Technology' FOR VIEW
+    /// </example>
+    public static SalesforceQueryable<T> ForView<T>(this SalesforceQueryable<T> query)
+        where T : class, new()
+    {
+        var method = typeof(SalesforceQueryExtensions)
+            .GetMethod(nameof(ForViewInternal), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(typeof(T));
+
+        var call = Expression.Call(method, query.Expression);
+        return (SalesforceQueryable<T>)query.Provider.CreateQuery<T>(call);
+    }
+
+    /// <summary>
+    /// Adds FOR REFERENCE to the query to track recently referenced records.
+    /// Updates the LastReferencedDate field for queried records.
+    /// </summary>
+    /// <example>
+    /// var accounts = await _dataService.Query&lt;Account&gt;()
+    ///     .Where(a => a.Type == "Customer")
+    ///     .ForReference()
+    ///     .ToListAsync();
+    /// // Generates: SELECT Id, Name FROM Account WHERE Type = 'Customer' FOR REFERENCE
+    /// </example>
+    public static SalesforceQueryable<T> ForReference<T>(this SalesforceQueryable<T> query)
+        where T : class, new()
+    {
+        var method = typeof(SalesforceQueryExtensions)
+            .GetMethod(nameof(ForReferenceInternal), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(typeof(T));
+
+        var call = Expression.Call(method, query.Expression);
+        return (SalesforceQueryable<T>)query.Provider.CreateQuery<T>(call);
+    }
+
+    private static IQueryable<T> ForUpdateInternal<T>(IQueryable<T> source) => source;
+    private static IQueryable<T> ForViewInternal<T>(IQueryable<T> source) => source;
+    private static IQueryable<T> ForReferenceInternal<T>(IQueryable<T> source) => source;
 
     /// <summary>
     /// Returns distinct values for a field using GROUP BY.
@@ -2370,8 +2473,6 @@ public static class SalesforceQueryExtensions
         }
         return e;
     }
-
-    #endregion
 
     #endregion
 }
