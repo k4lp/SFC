@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SalesforceCore.AspNetCore.Authentication;
 using SalesforceCore.AspNetCore.Extensions;
+using SalesforceCore.Models.Configuration;
 using SalesforceCore.Services.Core;
 using Xunit;
 
@@ -77,6 +78,67 @@ public class AuthenticationOptionsTests
         var oidcOptions = options.Get(OpenIdConnectDefaults.AuthenticationScheme);
         oidcOptions.Events.Should().NotBeNull();
         oidcOptions.Events.OnTokenResponseReceived.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddSalesforceAuthentication_BrowserEncryptedModeDoesNotUseServerSideSessionStore()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDistributedMemoryCache();
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Salesforce:Domain"] = "https://login.salesforce.com",
+                ["Salesforce:ClientId"] = "client-id",
+                ["Salesforce:CallbackPath"] = "/salesforce/callback"
+            })
+            .Build();
+
+        services.AddSalesforceAuthentication(config, useServerSideSessions: false);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>();
+
+        var cookieOptions = options.Get(CookieAuthenticationDefaults.AuthenticationScheme);
+        cookieOptions.SessionStore.Should().BeNull();
+    }
+
+    [Fact]
+    public void SalesforceOptions_DisablesServerSideTokenRefreshCoordinatorByDefault()
+    {
+        var options = new SalesforceOptions();
+
+        options.EnableServerSideTokenRefreshCoordinator.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AddSalesforceAuthentication_DoesNotConfigureClientSecretForBrowserEncryptedPkceFlow()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDistributedMemoryCache();
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Salesforce:Domain"] = "https://login.salesforce.com",
+                ["Salesforce:ClientId"] = "client-id",
+                ["Salesforce:ClientSecret"] = "do-not-use-for-pkce-browser-ticket-mode",
+                ["Salesforce:CallbackPath"] = "/salesforce/callback"
+            })
+            .Build();
+
+        services.AddSalesforceAuthentication(config, useServerSideSessions: false);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>();
+
+        var oidcOptions = options.Get(OpenIdConnectDefaults.AuthenticationScheme);
+        oidcOptions.UsePkce.Should().BeTrue();
+        oidcOptions.SaveTokens.Should().BeTrue();
+        oidcOptions.ClientSecret.Should().BeNull();
     }
 
     [Fact]

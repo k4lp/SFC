@@ -148,10 +148,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSalesforceCoreMvc(builder.Configuration);
 
 // Add PKCE OAuth authentication.
-// Recommended for production/multi-node deployments: store the auth ticket server-side
-// to avoid cookie size limits (requires IDistributedCache: Redis recommended).
-builder.Services.AddDistributedMemoryCache(); // dev only; use Redis in production
-builder.Services.AddSalesforceAuthentication(builder.Configuration, useServerSideSessions: true);
+// Default mode stores the protected auth ticket, including OAuth tokens, in the browser cookie.
+builder.Services.AddSalesforceAuthentication(builder.Configuration, useServerSideSessions: false);
 
 var app = builder.Build();
 
@@ -204,6 +202,43 @@ builder.Services.AddStackExchangeRedisCache(options =>
 // Enable server-side auth tickets (avoids cookie size limits)
 builder.Services.AddSalesforceAuthentication(builder.Configuration, useServerSideSessions: true);
 ```
+
+
+### Browser-Encrypted Token Storage (No Server-Side Token Persistence)
+
+A SalesforceCore MVC server cannot be perfectly zero-knowledge because it must decrypt and present the Salesforce access token while proxying Salesforce API calls. However, the default cookie/OIDC flow can keep OAuth tokens out of server-side storage entirely: the encrypted authentication ticket lives in the user's browser cookie and is sent with each request.
+
+Use this mode when your priority is **no server-side token persistence**:
+
+- Call `AddSalesforceAuthentication(builder.Configuration, useServerSideSessions: false)` or omit the second argument.
+- Leave `Salesforce:EnableServerSideTokenRefreshCoordinator` unset or set it to `false`; this prevents short-lived refreshed-token snapshots from being written to `IDistributedCache`.
+- Keep `ForceSecureCookie` enabled and use the default `__Host-SalesforceSession` cookie name.
+- Keep cookies `HttpOnly` so browser scripts cannot read OAuth tokens from the authentication ticket.
+- Configure durable ASP.NET Core Data Protection keys across app restarts/nodes; otherwise existing encrypted browser tickets cannot be decrypted after rotation/redeployment.
+
+```csharp
+// No IDistributedCache token/session store is required for browser-encrypted storage.
+builder.Services.AddSalesforceAuthentication(
+    builder.Configuration,
+    useServerSideSessions: false);
+```
+
+```json
+{
+  "Salesforce": {
+    "ClientId": "YOUR_CONNECTED_APP_CONSUMER_KEY",
+    "ForceSecureCookie": true,
+    "SessionCookieName": "__Host-SalesforceSession",
+    "EnableServerSideTokenRefreshCoordinator": false
+  }
+}
+```
+
+Important tradeoffs:
+
+- The server never stores OAuth tokens in its session store, distributed cache, or database in this mode. Tokens are only present transiently in server memory while decrypting the incoming auth cookie and forwarding Salesforce API requests.
+- The encrypted cookie can become large because it contains the auth ticket and OAuth tokens. If browsers reject the cookie due to size, switch to `useServerSideSessions: true`, but that intentionally moves the protected ticket to server-side storage.
+- Multi-node deployments must share Data Protection keys so every node can decrypt the browser-carried ticket.
 
 ### Login/Logout Implementation
 
@@ -516,21 +551,21 @@ builder.Services.AddSalesforceCore(builder.Configuration);
 
 | Strategy | Primary Use Case | What Is Stored | Multi-Node |
 |----------|------------------|----------------|-----------|
-| **Cookie auth ticket (default)** | Dev/simple web apps | Auth ticket containing tokens/claims | Yes, but can hit cookie size limits |
-| **Server-side auth tickets (`useServerSideSessions`)** | Production web apps | Auth ticket in `IDistributedCache` + small reference cookie | Yes (recommended; share Data Protection keys) |
+| **Browser-encrypted cookie auth ticket (default)** | Apps that require no server-side token persistence | Protected auth ticket containing tokens/claims in the user browser cookie | Yes if Data Protection keys are shared; can hit cookie size limits |
+| **Server-side auth tickets (`useServerSideSessions`)** | Apps that prioritize small cookies over no server-side token persistence | Auth ticket in `IDistributedCache` + small reference cookie | Yes; intentionally stores tokens server-side |
 | **JWT/Client Credentials providers** | Headless services | `CachedToken` via `ICacheProvider` | Yes if cache provider is distributed/SQL |
 | **SessionTokenProvider / DistributedCacheTokenProvider** | Custom login flows | Tokens stored in Session or `IDistributedCache` | Yes for distributed cache |
 
 Session timestamp: 2025-12-25T23:00:00Z
 
-### Cookie-Based Storage (Default for Web)
+### Browser-Encrypted Cookie Storage (Default for Web)
 
 ```csharp
 // This is the default when using AddSalesforceAuthentication
 builder.Services.AddSalesforceAuthentication(builder.Configuration);
 ```
 
-Tokens are stored in the ASP.NET Core authentication ticket because `SaveTokens = true` is enabled in `AddSalesforceAuthentication`.
+Tokens are stored in the ASP.NET Core authentication ticket because `SaveTokens = true` is enabled in `AddSalesforceAuthentication`. In the default `useServerSideSessions: false` mode, that protected ticket is carried by the browser cookie rather than stored in `IDistributedCache`.
 The instance URL is persisted into auth properties by `OnTokenResponseReceived`.
 
 ```json
@@ -542,7 +577,7 @@ The instance URL is persisted into auth properties by `OnTokenResponseReceived`.
 }
 ```
 
-### Server-Side Auth Tickets (Recommended for Production)
+### Server-Side Auth Tickets (Optional, Stores Tokens Server-Side)
 
 ```csharp
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -555,7 +590,7 @@ builder.Services.AddSalesforceAuthentication(builder.Configuration, useServerSid
 ```
 
 Notes:
-- This stores the authentication ticket in `IDistributedCache` to avoid cookie size limits.
+- This intentionally stores the authentication ticket, including OAuth tokens, in `IDistributedCache` to avoid cookie size limits.
 - The ticket is stored by `DistributedCacheTicketStore` with key prefix `SalesforceAuth:` when enabled.
 - In multi-node deployments, share ASP.NET Core Data Protection keys across nodes.
 - Session timestamp: 2025-12-25T23:00:00Z
@@ -625,11 +660,11 @@ For the PKCE cookie/OIDC flow (`AddSalesforceAuthentication`), refresh is handle
 
 - An in-process lock prevents duplicate refresh within a single node.
 - If an `IDistributedLockProvider` is available, a distributed lock prevents cross-node refresh storms (critical when refresh token rotation is enabled).
-- If `IDistributedCache` is available, a short-lived “refresh snapshot” can be published so other nodes handling concurrent in-flight requests can pick up the refreshed token without attempting a second refresh.
+- If `Salesforce:EnableServerSideTokenRefreshCoordinator` is explicitly set to `true` and `IDistributedCache` is available, a short-lived “refresh snapshot” can be published so other nodes handling concurrent in-flight requests can pick up the refreshed token without attempting a second refresh. Keep this disabled for no-server-side-token-persistence browser mode.
 
 Notes for multi-node:
-- Use server-side auth tickets (`useServerSideSessions: true`) so the authentication ticket is the shared token source-of-truth.
-- Share ASP.NET Core Data Protection keys across nodes.
+- For no-server-side-token-persistence browser mode, keep `useServerSideSessions: false`, keep `EnableServerSideTokenRefreshCoordinator: false`, and share ASP.NET Core Data Protection keys across nodes.
+- For smaller cookies, use server-side auth tickets (`useServerSideSessions: true`) knowingly: that makes `IDistributedCache` the shared token source-of-truth.
 
 ### Distributed Lock for Multi-Node
 

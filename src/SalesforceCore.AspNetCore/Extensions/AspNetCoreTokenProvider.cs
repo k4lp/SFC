@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
@@ -358,7 +357,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
 
     private async Task<RefreshSnapshot?> TryGetRefreshSnapshotAsync(string sessionKey, CancellationToken cancellationToken)
     {
-        if (_distributedCache == null)
+        if (_distributedCache == null || !_options.EnableServerSideTokenRefreshCoordinator)
         {
             return null;
         }
@@ -387,7 +386,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
 
     private async Task TrySetRefreshSnapshotAsync(string sessionKey, RefreshSnapshot snapshot, CancellationToken cancellationToken)
     {
-        if (_distributedCache == null)
+        if (_distributedCache == null || !_options.EnableServerSideTokenRefreshCoordinator)
         {
             return;
         }
