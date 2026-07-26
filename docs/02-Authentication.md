@@ -205,6 +205,43 @@ builder.Services.AddStackExchangeRedisCache(options =>
 builder.Services.AddSalesforceAuthentication(builder.Configuration, useServerSideSessions: true);
 ```
 
+
+### Browser-Encrypted Token Storage (No Server-Side Token Persistence)
+
+A SalesforceCore MVC server cannot be perfectly zero-knowledge because it must decrypt and present the Salesforce access token while proxying Salesforce API calls. However, the default cookie/OIDC flow can keep OAuth tokens out of server-side storage entirely: the encrypted authentication ticket lives in the user's browser cookie and is sent with each request.
+
+Use this mode when your priority is **no server-side token persistence**:
+
+- Call `AddSalesforceAuthentication(builder.Configuration, useServerSideSessions: false)` or omit the second argument.
+- Leave `Salesforce:EnableServerSideTokenRefreshCoordinator` unset or set it to `false`; this prevents short-lived refreshed-token snapshots from being written to `IDistributedCache`.
+- Keep `ForceSecureCookie` enabled and use the default `__Host-SalesforceSession` cookie name.
+- Keep cookies `HttpOnly` so browser scripts cannot read OAuth tokens from the authentication ticket.
+- Configure durable ASP.NET Core Data Protection keys across app restarts/nodes; otherwise existing encrypted browser tickets cannot be decrypted after rotation/redeployment.
+
+```csharp
+// No IDistributedCache token/session store is required for browser-encrypted storage.
+builder.Services.AddSalesforceAuthentication(
+    builder.Configuration,
+    useServerSideSessions: false);
+```
+
+```json
+{
+  "Salesforce": {
+    "ClientId": "YOUR_CONNECTED_APP_CONSUMER_KEY",
+    "ForceSecureCookie": true,
+    "SessionCookieName": "__Host-SalesforceSession",
+    "EnableServerSideTokenRefreshCoordinator": false
+  }
+}
+```
+
+Important tradeoffs:
+
+- The server never stores OAuth tokens in its session store, distributed cache, or database in this mode. Tokens are only present transiently in server memory while decrypting the incoming auth cookie and forwarding Salesforce API requests.
+- The encrypted cookie can become large because it contains the auth ticket and OAuth tokens. If browsers reject the cookie due to size, switch to `useServerSideSessions: true`, but that intentionally moves the protected ticket to server-side storage.
+- Multi-node deployments must share Data Protection keys so every node can decrypt the browser-carried ticket.
+
 ### Login/Logout Implementation
 
 ```csharp

@@ -216,6 +216,14 @@ public class SalesforceOptions
     public bool SlidingExpiration { get; set; } = true;
 
     /// <summary>
+    /// Allow the ASP.NET Core token provider to publish short-lived refreshed-token snapshots
+    /// to IDistributedCache so other servers can avoid duplicate refreshes.
+    /// Keep disabled for browser-only encrypted-token storage because snapshots contain OAuth tokens server-side.
+    /// Default: false.
+    /// </summary>
+    public bool EnableServerSideTokenRefreshCoordinator { get; set; } = false;
+
+    /// <summary>
     /// When true, forces users to re-authenticate with Salesforce on login.
     /// This adds "prompt=login" to the authorization URL, preventing automatic login
     /// with existing Salesforce sessions. Useful for applications requiring explicit
