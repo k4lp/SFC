@@ -172,6 +172,10 @@ public static class ServiceCollectionExtensions
         bool useServerSideSessions = false)
     {
         var salesforceConfig = configuration.GetSection(SalesforceOptions.SectionName);
+        // AddSalesforceAuthentication can be used without AddSalesforceCoreMvc. Bind the
+        // options here as well because AspNetCoreTokenProvider consumes them when it refreshes
+        // a token (including the refresh-coordinator opt-in).
+        services.Configure<SalesforceOptions>(salesforceConfig);
         var domain = salesforceConfig["Domain"] ?? "https://login.salesforce.com";
         var clientId = salesforceConfig["ClientId"] ?? throw new InvalidOperationException("Salesforce:ClientId is required");
         var callbackPath = salesforceConfig["CallbackPath"] ?? "/salesforce/callback";

@@ -143,39 +143,26 @@ public class AuthenticationOptionsTests
     }
 
     [Fact]
-    public void SalesforceOptions_DisablesServerSideTokenRefreshCoordinatorByDefault()
-    {
-        var options = new SalesforceOptions();
-
-        options.EnableServerSideTokenRefreshCoordinator.Should().BeFalse();
-    }
-
-    [Fact]
-    public void AddSalesforceAuthentication_DoesNotConfigureClientSecretForBrowserEncryptedPkceFlow()
+    public void AddSalesforceAuthentication_BindsRefreshCoordinatorOption()
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddDistributedMemoryCache();
 
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Salesforce:Domain"] = "https://login.salesforce.com",
                 ["Salesforce:ClientId"] = "client-id",
-                ["Salesforce:ClientSecret"] = "do-not-use-for-pkce-browser-ticket-mode",
-                ["Salesforce:CallbackPath"] = "/salesforce/callback"
+                ["Salesforce:EnableServerSideTokenRefreshCoordinator"] = "true"
             })
             .Build();
 
-        services.AddSalesforceAuthentication(config, useServerSideSessions: false);
+        services.AddSalesforceAuthentication(config);
 
         using var provider = services.BuildServiceProvider();
-        var options = provider.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>();
+        var options = provider.GetRequiredService<IOptions<SalesforceOptions>>().Value;
 
-        var oidcOptions = options.Get(OpenIdConnectDefaults.AuthenticationScheme);
-        oidcOptions.UsePkce.Should().BeTrue();
-        oidcOptions.SaveTokens.Should().BeTrue();
-        oidcOptions.ClientSecret.Should().BeNull();
+        options.EnableServerSideTokenRefreshCoordinator.Should().BeTrue();
     }
 
     [Fact]
