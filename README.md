@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=.net" alt=".NET 10"/></a>
-  <img src="https://img.shields.io/badge/tests-474%20passing-brightgreen" alt="Tests"/>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"/>
 </p>
 
 ---
@@ -37,28 +37,21 @@
    - [JWT Bearer Flow](#jwt-bearer-flow)
    - [Client Credentials Flow](#client-credentials-flow)
 8. [Configuration Reference](#configuration-reference)
-   - [Core Options](#core-options)
-   - [MVC Options](#mvc-options)
-   - [Dynamic UI Options](#dynamic-ui-options)
-   - [Caching Options](#caching-options)
+   - [Core Options](#core-options-salesforce-section)
+   - [MVC Options](#mvc-options-salesforcemvc-section)
+   - [Dynamic UI Options](#dynamic-ui-options-dynamicui-section)
 9. [Services Reference](#services-reference)
    - [IDataService](#idataservice)
    - [ITypedDataService](#itypeddataservice)
    - [ISchemaService](#ischemaservice)
-   - [IBulkService](#ibulkservice)
-   - [ICompositeService](#icompositeservice)
    - [IPermissionService](#ipermissionservice)
    - [ILayoutDescriptorService](#ilayoutdescriptorservice)
 10. [Tag Helpers](#tag-helpers)
-11. [Dynamic UI System](#dynamic-ui-system-1)
-12. [API Endpoints](#api-endpoints)
-13. [Model Generator CLI](#model-generator-cli)
-14. [Best Practices](#best-practices)
-15. [Performance Optimization](#performance-optimization)
-16. [Troubleshooting](#troubleshooting)
-17. [Migration Guide](#migration-guide)
-18. [Contributing](#contributing)
-19. [License](#license)
+11. [API Endpoints](#api-endpoints)
+12. [Best Practices](#best-practices)
+13. [Documentation Index](#documentation-index)
+14. [Contributing](#contributing)
+15. [License](#license)
 
 ---
 
@@ -571,23 +564,24 @@ var graphResult = await _compositeService.ExecuteGraphAsync(graph);
 
 #### Model Generator CLI
 
+The model generator is included in this repository but is not currently published as a .NET tool. Build it from source, then invoke the generated executable (or use `dotnet run`) with an instance URL and access token. You can also set `SF_INSTANCE_URL` and `SF_ACCESS_TOKEN` instead of passing the corresponding options.
+
 ```bash
-# Install globally
-dotnet tool install -g SalesforceCore.ModelGenerator
+# Generate models for selected objects
+dotnet run --project src/SalesforceCore.ModelGenerator -- generate Account Contact \
+  --instance-url https://your-instance.my.salesforce.com \
+  --token "$SF_ACCESS_TOKEN" \
+  --output ./Models \
+  --namespace MyApp.Models
 
-# Generate models for specific objects
-sf-gen --objects Account,Contact,Opportunity --output ./Models
+# Generate standard objects; add --include-custom to include custom objects
+dotnet run --project src/SalesforceCore.ModelGenerator -- generate '*' \
+  --output ./Models --include-custom
 
-# Generate all accessible objects
-sf-gen --all --output ./Models --namespace MyApp.Models
-
-# Generate with custom options
-sf-gen --objects Account,Contact \
-       --output ./Models \
-       --namespace MyApp.Salesforce.Models \
-       --include-relationships \
-       --include-picklist-enums \
-       --use-nullable-reference-types
+# Inspect available objects
+dotnet run --project src/SalesforceCore.ModelGenerator -- list \
+  --instance-url https://your-instance.my.salesforce.com \
+  --token "$SF_ACCESS_TOKEN"
 ```
 
 Generated model example:
@@ -706,28 +700,14 @@ public class Account
 
 ### NuGet Packages
 
+SalesforceCore packages are **not yet published to NuGet**. Reference the projects directly while developing against this repository:
+
 ```bash
-# Core library (required)
-
-# ASP.NET Core integration (recommended for web apps)
-
-# CLI tool (optional, global installation)
+dotnet add reference /path/to/SFC/src/SalesforceCore/SalesforceCore.csproj
+dotnet add reference /path/to/SFC/src/SalesforceCore.AspNetCore/SalesforceCore.AspNetCore.csproj
 ```
-NOT YET PUBLISHED!
-### Package Dependencies
 
-The core library has minimal dependencies:
-- `Microsoft.Extensions.Caching.Abstractions`
-- `Microsoft.Extensions.Configuration.Abstractions`
-- `Microsoft.Extensions.DependencyInjection.Abstractions`
-- `Microsoft.Extensions.Http`
-- `Microsoft.Extensions.Logging.Abstractions`
-- `Microsoft.Extensions.Options`
-- `System.Text.Json`
-
-The ASP.NET Core package adds:
-- `Microsoft.AspNetCore.Authentication`
-- `Microsoft.AspNetCore.Mvc.TagHelpers`
+> **Note:** Adjust the relative paths above for your application. The project files are the authoritative dependency list.
 
 ### Connected App Setup
 
@@ -1466,22 +1446,27 @@ Scaffolds a complete form based on model metadata:
 | [10-API-Reference.md](docs/10-API-Reference.md) | Complete API reference |
 | [11-Additional-Services.md](docs/11-Additional-Services.md) | Files, Reports, Tooling |
 | [12-Tutorial-MVC-CRUD-App.md](docs/12-Tutorial-MVC-CRUD-App.md) | Step-by-step MVC tutorial |
+| [12-Custom-MVC-Guide.md](docs/12-Custom-MVC-Guide.md) | Building custom MVC integrations |
 | [13-Complex-Scenarios-Guide.md](docs/13-Complex-Scenarios-Guide.md) | Advanced patterns |
 | [14-Enterprise-Integration-Guide.md](docs/14-Enterprise-Integration-Guide.md) | Enterprise architecture |
 | [15-Tag-Helpers.md](docs/15-Tag-Helpers.md) | Tag helper reference |
 | [16-Backbone-Infrastructure.md](docs/16-Backbone-Infrastructure.md) | Infrastructure details |
 | [17-Dynamic-UI-System.md](docs/17-Dynamic-UI-System.md) | Dynamic UI complete guide |
+| [18-Visibility-System-Overview.md](docs/18-Visibility-System-Overview.md) | Visibility system overview |
+| [19-Visibility-Handlers-Reference.md](docs/19-Visibility-Handlers-Reference.md) | Visibility handler reference |
+| [20-Visibility-UI-Integration.md](docs/20-Visibility-UI-Integration.md) | Visibility UI integration |
+| [21-Visibility-Extensibility.md](docs/21-Visibility-Extensibility.md) | Extending the visibility system |
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+We welcome contributions. Please open an issue to discuss substantial changes, then submit a pull request with focused changes and tests where applicable.
 
 ### Development Setup
 
 ```bash
-git clone https://github.com/your-org/SalesforceCore.git
+git clone https://github.com/k4lp/SalesforceCore.git
 cd SalesforceCore
 dotnet restore
 dotnet build
@@ -1505,7 +1490,7 @@ dotnet test tests/SalesforceCore.Tests
 
 ## License
 
-Licensed under the [License](LICENSE).
+Licensed under the [MIT License](LICENSE.txt).
 
 ---
 
