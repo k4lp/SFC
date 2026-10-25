@@ -42,21 +42,25 @@ public class QueryResult<T> where T : class
     /// <summary>
     /// Total number of records matching the query.
     /// </summary>
+    [JsonPropertyName("totalSize")]
     public int TotalSize { get; set; }
 
     /// <summary>
     /// Whether the query is complete (no more pages).
     /// </summary>
+    [JsonPropertyName("done")]
     public bool Done { get; set; }
 
     /// <summary>
     /// URL for the next page of results (if more exist).
     /// </summary>
+    [JsonPropertyName("nextRecordsUrl")]
     public string? NextRecordsUrl { get; set; }
 
     /// <summary>
     /// Typed array of record objects.
     /// </summary>
+    [JsonPropertyName("records")]
     public List<T> Records { get; set; } = new();
 }
 
