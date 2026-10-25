@@ -15,6 +15,17 @@ internal sealed class SalesforceOptionsValidator : IValidateOptions<SalesforceOp
             failures.Add("Salesforce:MaxResponseContentBufferSize must be > 0.");
         }
 
+        if (options.ValidateInstanceUrl && !string.IsNullOrWhiteSpace(options.Domain) &&
+            !SalesforceCore.Security.SalesforceUrlValidator.TryValidate(options.Domain, options.AdditionalAllowedHosts, out var domainReason))
+        {
+            failures.Add($"Salesforce:Domain is not a trusted Salesforce login URL: {domainReason}");
+        }
+
+        if (options.HttpTimeout <= TimeSpan.Zero || options.HttpTimeout > TimeSpan.FromMinutes(30))
+        {
+            failures.Add("Salesforce:HttpTimeout must be between 0 and 30 minutes.");
+        }
+
         if (options.CacheProvider == Services.Caching.CacheProviderType.SqlServer)
         {
             ValidateSqlCache(options, failures);

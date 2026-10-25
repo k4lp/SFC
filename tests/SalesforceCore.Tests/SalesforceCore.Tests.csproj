@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SalesforceCore\SalesforceCore.csproj" />
     <ProjectReference Include="..\..\src\SalesforceCore.AspNetCore\SalesforceCore.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\SalesforceCore.ModelGenerator\SalesforceCore.ModelGenerator.csproj" />
   </ItemGroup>
 
 </Project>

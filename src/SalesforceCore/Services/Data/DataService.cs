@@ -224,6 +224,19 @@ public class DataService : IDataService
 
     #region CRUD Operations
 
+    /// <summary>
+    /// Rejects record IDs that are not 15/18-character alphanumeric Salesforce IDs so they cannot
+    /// alter the REST path (e.g. "../../query?q=...") when supplied from untrusted input.
+    /// Disabled when <see cref="SalesforceOptions.ValidateSoqlInputs"/> is false.
+    /// </summary>
+    private void EnsureValidRecordId(string id)
+    {
+        if (_options.ValidateSoqlInputs && !SecurityUtils.IsValidSalesforceId(id))
+        {
+            throw new ArgumentException("Invalid Salesforce record ID (expected 15 or 18 alphanumeric characters).", nameof(id));
+        }
+    }
+
     /// <inheritdoc/>
     public async Task<JsonNode> GetRecordAsync(
         string sObject,
@@ -234,6 +247,7 @@ public class DataService : IDataService
         if (!SecurityUtils.IsValidObjectName(sObject))
             throw new ArgumentException($"Invalid object name: {sObject}", nameof(sObject));
 
+        EnsureValidRecordId(id);
         var endpoint = $"/sobjects/{sObject}/{id}";
 
         if (fields != null)
@@ -303,6 +317,7 @@ public class DataService : IDataService
             operation: "update",
             dropNullValues: false);
 
+        EnsureValidRecordId(id);
         await _client.PatchAsync($"/sobjects/{sObject}/{id}", payload, cancellationToken);
     }
 
@@ -315,6 +330,7 @@ public class DataService : IDataService
         if (!SecurityUtils.IsValidObjectName(sObject))
             throw new ArgumentException($"Invalid object name: {sObject}", nameof(sObject));
 
+        EnsureValidRecordId(id);
         await _client.DeleteAsync($"/sobjects/{sObject}/{id}", cancellationToken);
     }
 

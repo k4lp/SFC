@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  schedule:
+    - cron: '23 3 * * 1'   # weekly: re-check for newly published package vulnerabilities
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+      DOTNET_NOLOGO: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore (NuGet audit fails on vulnerable packages)
+        run: dotnet restore SalesforceCore.sln
+      - name: Build
+        run: dotnet build SalesforceCore.sln -c Release --no-restore
+      - name: Test
+        run: dotnet test SalesforceCore.sln -c Release --no-build --verbosity normal
+      - name: Vulnerable package report
+        run: |
+          dotnet list SalesforceCore.sln package --vulnerable --include-transitive | tee vuln.txt
+          if grep -q "has the following vulnerable packages" vuln.txt; then exit 1; fi
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          build-mode: manual
+      - run: dotnet build SalesforceCore.sln -c Release
+      - uses: github/codeql-action/analyze@v3

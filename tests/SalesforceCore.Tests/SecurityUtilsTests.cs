@@ -39,9 +39,9 @@ public class SecurityUtilsTests
 
     [Theory]
     [InlineData("Name", "Name")]
-    [InlineData("Test's Value", "Test''s Value")]
-    [InlineData("Test\\Value", "Test\\Value")]
-    [InlineData("Line1\nLine2", "Line1\nLine2")] // Newlines are NOT escaped in SOQL string literals
+    [InlineData("Test's Value", "Test\\'s Value")]
+    [InlineData("Test\\Value", "Test\\\\Value")]
+    [InlineData("Line1\nLine2", "Line1\\nLine2")] // Newlines use the SOQL \n escape sequence
     [InlineData("", "")]
     [InlineData(null, "")]
     public void SanitizeForSoql_ShouldEscapeCorrectly(string? input, string expected)
@@ -54,7 +54,7 @@ public class SecurityUtilsTests
     [InlineData("100%", "100\\%")]
     [InlineData("User_Name", "User\\_Name")]
     [InlineData("Normal", "Normal")]
-    [InlineData("O'Reilly", "O''Reilly")]
+    [InlineData("O'Reilly", "O\\'Reilly")]
     public void SanitizeSoqlLike_ShouldEscapeWildcards(string? input, string expected)
     {
         var result = SecurityUtils.SanitizeSoqlLike(input);
@@ -124,7 +124,7 @@ public class SecurityUtilsTests
         // Null bytes should be removed
         result.Should().NotContain("\0");
         // Quotes should still be escaped
-        result.Should().Contain("''");
+        result.Should().Contain("\\'");
     }
 
     [Fact]
@@ -133,11 +133,11 @@ public class SecurityUtilsTests
         // Unicode apostrophe/quote homoglyphs that could bypass naive filtering
         var testCases = new[]
         {
-            ("Smithʼ OR 1=1", "Smith'' OR 1=1"),  // U+02BC Modifier Letter Apostrophe
-            ("Testʹ--", "Test''--"),              // U+02B9 Modifier Letter Prime  
-            ("Value' OR", "Value'' OR"),          // U+2019 Right Single Quotation Mark
-            ("Data' AND", "Data'' AND"),          // U+2018 Left Single Quotation Mark
-            ("Name' DROP", "Name'' DROP"),        // U+FF07 Fullwidth Apostrophe
+            ("Smithʼ OR 1=1", "Smith\\' OR 1=1"),  // U+02BC Modifier Letter Apostrophe
+            ("Testʹ--", "Test\\'--"),              // U+02B9 Modifier Letter Prime  
+            ("Value' OR", "Value\\' OR"),          // U+2019 Right Single Quotation Mark
+            ("Data' AND", "Data\\' AND"),          // U+2018 Left Single Quotation Mark
+            ("Name' DROP", "Name\\' DROP"),        // U+FF07 Fullwidth Apostrophe
         };
 
         foreach (var (input, expected) in testCases)
@@ -166,7 +166,8 @@ public class SecurityUtilsTests
         
         var result = SecurityUtils.SanitizeSoql(withWhitespace);
         
-        result.Should().Be(withWhitespace);
+        // Preserved as SOQL escape sequences
+        result.Should().Be("Line 1\\nLine 2\\r\\nLine 3\\tTabbed");
     }
 
     [Theory]
@@ -285,7 +286,7 @@ public class SecurityUtilsTests
     [InlineData(true, "TRUE")]
     [InlineData(false, "FALSE")]
     [InlineData(123, "123")]
-    [InlineData("Test's Value", "'Test''s Value'")]
+    [InlineData("Test's Value", "'Test\\'s Value'")]
     public void FormatSoqlValue_ShouldFormatCorrectly(object? input, string expected)
     {
         var result = SecurityUtils.FormatSoqlValue(input);
@@ -314,7 +315,7 @@ public class SecurityUtilsTests
         result.Should().NotContain("\0");           // No null bytes
         result.Should().NotContain("\x01");         // No control chars
         result.Should().NotContain("ʼ");            // Unicode normalized
-        result.Should().Contain("''");              // Quotes escaped
+        result.Should().Contain("\\'");             // Quotes escaped
     }
 
     [Theory]
@@ -326,12 +327,12 @@ public class SecurityUtilsTests
     {
         var result = SecurityUtils.SanitizeSoql(malicious);
         
-        // All single quotes should be doubled
+        // Every single quote must be backslash-escaped (SOQL has no '' doubling)
         var originalQuotes = malicious.Count(c => c == '\'');
-        var resultDoubleQuotes = CountSubstring(result, "''");
+        var escapedQuotes = CountSubstring(result, "\\'");
         
-        resultDoubleQuotes.Should().Be(originalQuotes, 
-            because: "each single quote should become a double quote");
+        escapedQuotes.Should().Be(originalQuotes, 
+            because: "each single quote should become \\'");
     }
 
     private static int CountSubstring(string text, string pattern)

@@ -317,7 +317,7 @@ public class SoqlExpressionVisitorTests
 
         // Assert
         // Should escape single quotes for SOQL
-        result.Should().Contain("Acme''s");
+        result.Should().Contain("Acme\\'s");
     }
 
     [Fact]

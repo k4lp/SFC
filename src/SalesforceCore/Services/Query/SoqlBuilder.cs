@@ -444,7 +444,7 @@ public class SoqlBuilder
     public SoqlBuilder WhereLike(string field, string pattern)
     {
         var sanitizedField = SecurityUtils.SanitizeFieldName(field);
-        var sanitizedPattern = SecurityUtils.SanitizeSoql(pattern).Replace("\\", "\\\\");
+        var sanitizedPattern = SecurityUtils.SanitizeSoql(pattern);
         _whereClauses.Add($"{sanitizedField} LIKE '{sanitizedPattern}'");
         return this;
     }

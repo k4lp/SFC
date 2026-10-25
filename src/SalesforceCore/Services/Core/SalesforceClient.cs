@@ -414,12 +414,28 @@ public class SalesforceClient : ISalesforceClient
         }
     }
 
+    private string ValidateInstanceUrl(string instanceUrl)
+    {
+        if (!_options.ValidateInstanceUrl)
+        {
+            return instanceUrl;
+        }
+
+        if (!SalesforceCore.Security.SalesforceUrlValidator.TryValidate(instanceUrl, _options.AdditionalAllowedHosts, out var reason))
+        {
+            _logger.LogError("Refusing to send access token to untrusted instance URL: {Reason}", reason);
+            throw new SalesforceAuthException($"Rejected Salesforce instance URL: {reason}");
+        }
+
+        return instanceUrl.Trim();
+    }
+
     private async Task EnsureInstanceUrlAsync(CancellationToken cancellationToken)
     {
         var instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken);
         if (!string.IsNullOrEmpty(instanceUrl))
         {
-            _instanceUrl = instanceUrl;
+            _instanceUrl = ValidateInstanceUrl(instanceUrl);
             return;
         }
 
@@ -440,7 +456,7 @@ public class SalesforceClient : ISalesforceClient
         var instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken);
         if (!string.IsNullOrEmpty(instanceUrl))
         {
-            _instanceUrl = instanceUrl;
+            _instanceUrl = ValidateInstanceUrl(instanceUrl);
             return token;
         }
 
@@ -453,7 +469,7 @@ public class SalesforceClient : ISalesforceClient
             instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken);
             if (!string.IsNullOrEmpty(instanceUrl))
             {
-                _instanceUrl = instanceUrl;
+                _instanceUrl = ValidateInstanceUrl(instanceUrl);
                 return token;
             }
         }

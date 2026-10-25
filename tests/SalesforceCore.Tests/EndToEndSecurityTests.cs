@@ -47,11 +47,11 @@ public class EndToEndSecurityTests
 
         // Assert - the injection should be escaped, making it a literal search
         // Verify the malicious single quote is escaped by doubling
-        query.Should().Contain("Smith''");
+        query.Should().Contain("Smith\\'");
 
         // LIKE clauses escape wildcards in the value itself (not via ESCAPE clause)
         // Verify the malicious single quote is escaped by doubling
-        query.Should().Contain("Smith''");
+        query.Should().Contain("Smith\\'");
     }
 
     [Fact]

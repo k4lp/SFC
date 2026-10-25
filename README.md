@@ -1487,6 +1487,25 @@ Scaffolds a complete form based on model metadata:
 
 ---
 
+## Security
+
+SalesforceCore 1.2.0 ships with secure defaults. Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+
+| Protection | Default | Opt-out / tuning |
+|---|---|---|
+| Access/refresh tokens and client secrets are only sent to HTTPS Salesforce hosts (`*.salesforce.com`, `*.force.com`, `*.salesforce.mil`, `*.cloudforce.com`, `*.database.com`, `*.salesforce-setup.com`, `*.salesforce-sites.com`, `*.sfcrmproducts.cn`, `*.sfcrmapps.cn`). A tampered `instance_url` (token response, cookie, cache) or a mis-typed `Domain` is rejected. | On | `Salesforce:AdditionalAllowedHosts` (exact host or `.suffix`) for proxies/custom domains; `Salesforce:ValidateInstanceUrl=false` for local test doubles only |
+| SOQL string values are escaped with backslash sequences (`\\`, `\'`, `\"`, `\n`…). Use `SecurityUtils.EscapeSoqlStringLiteral`, `SanitizeSoqlLike`, `EscapeSoslSearchTerm`, `FormatSoqlValue` or the `SoqlBuilder`/LINQ provider — never string-concatenate user input. | On | — |
+| Record IDs passed to `DataService` Get/Update/Delete must be 15/18 alphanumeric chars (blocks `../` REST path tampering). | On | `Salesforce:ValidateSoqlInputs=false` |
+| Error bodies from OAuth endpoints are redacted (`access_token`, `refresh_token`, `client_secret`, Bearer, session IDs) and truncated before logging or throwing. `CachedToken.ToString()` never prints tokens. | On | `Salesforce:MaxErrorBodyLength` |
+| Token refresh: one refresh per 401, serialized per session; a rejected-but-unexpired token is never handed back as "refreshed". | On | — |
+| Refresh coordinator snapshots in `IDistributedCache` are always Data-Protection encrypted (disabled if no `IDataProtectionProvider`). | On | — |
+| `DistributedCacheTokenProvider` keys tokens by session, then `NameIdentifier`/`sub` — never by display name. | On | `AllowUserNameAsCacheKey=true` |
+| Cookies: `__Host-` prefix, `HttpOnly`, `Secure` (Always), `SameSite=Lax`; OIDC code flow with PKCE, state and nonce; HTTPS metadata required. | On | `Salesforce:ForceSecureCookie=false` behind TLS-terminating proxies only |
+| ModelGenerator escapes all org metadata (names, labels, help text, picklist values) before emitting C#, and refuses to write outside `--output`. Prefer `SF_ACCESS_TOKEN` env var over `--token` (process lists are visible to other users). | On | — |
+| NuGet audit (direct + transitive) fails the build on any known vulnerable package. | On | — |
+
+Never log `HttpRequestMessage` headers yourself, keep `EnableDebugLogging` off in production (it logs request URLs, which contain SOQL), and store `ClientSecret`/JWT private keys in a secret store, not `appsettings.json`.
+
 ## Contributing
 
 We welcome contributions. Please open an issue to discuss substantial changes, then submit a pull request with focused changes and tests where applicable.

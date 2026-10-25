@@ -199,6 +199,16 @@ public static class ServiceCollectionExtensions
         // Parse SessionCookieName - defaults to __Host-SalesforceSession
         var sessionCookieName = salesforceConfig["SessionCookieName"] ?? "__Host-SalesforceSession";
 
+        // Instance/login URL validation - defaults to true (prevents sending tokens to non-Salesforce hosts)
+        var validateInstanceUrlStr = salesforceConfig["ValidateInstanceUrl"];
+        var validateInstanceUrl = string.IsNullOrEmpty(validateInstanceUrlStr) || bool.Parse(validateInstanceUrlStr);
+        var additionalAllowedHosts = salesforceConfig.GetSection("AdditionalAllowedHosts").GetChildren()
+            .Select(c => c.Value).Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v!).ToArray();
+        if (validateInstanceUrl)
+        {
+            SalesforceCore.Security.SalesforceUrlValidator.EnsureAllowed(domain, additionalAllowedHosts, "login domain (Salesforce:Domain)");
+        }
+
         // Ensure required infrastructure for web token handling is present.
         services.AddHttpContextAccessor();
         services.AddDataProtection();
@@ -252,6 +262,7 @@ public static class ServiceCollectionExtensions
             // No client secret required - PKCE provides the security
             options.ResponseType = OpenIdConnectResponseType.Code;
             options.UsePkce = true;  // Enable PKCE
+            options.RequireHttpsMetadata = true;
 
             options.SaveTokens = true;
             options.GetClaimsFromUserInfoEndpoint = true;
@@ -284,6 +295,13 @@ public static class ServiceCollectionExtensions
                 if (context.Properties != null)
                 {
                     var instanceUrl = context.TokenEndpointResponse?.GetParameter("instance_url")?.ToString();
+                    if (!string.IsNullOrWhiteSpace(instanceUrl) && validateInstanceUrl &&
+                        !SalesforceCore.Security.SalesforceUrlValidator.IsAllowed(instanceUrl, additionalAllowedHosts))
+                    {
+                        context.Fail("Salesforce returned an untrusted instance_url.");
+                        return Task.CompletedTask;
+                    }
+
                     if (!string.IsNullOrWhiteSpace(instanceUrl))
                     {
                         context.Properties.Items["instance_url"] = instanceUrl;

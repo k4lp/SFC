@@ -57,7 +57,7 @@ public class DataServiceTests
         {
             TotalSize = 1,
             Done = true,
-            Records = new List<JsonObject> { new JsonObject { ["Id"] = "001xxx", ["Name"] = "Test Account" } }
+            Records = new List<JsonObject> { new JsonObject { ["Id"] = "001000000000001", ["Name"] = "Test Account" } }
         };
 
         _mockClient.Setup(c => c.GetAsync<QueryResult>(
@@ -79,8 +79,8 @@ public class DataServiceTests
     public async Task GetRecordAsync_ShouldCallSObjectEndpoint()
     {
         // Arrange
-        var id = "001xxx";
-        var expectedResponse = new JsonObject { ["Id"] = "001xxx", ["Name"] = "Test" };
+        var id = "001000000000001";
+        var expectedResponse = new JsonObject { ["Id"] = "001000000000001", ["Name"] = "Test" };
 
         _mockClient.Setup(c => c.GetAsync(
                 It.Is<string>(s => s.Contains($"/sobjects/Account/{id}")),
@@ -136,7 +136,7 @@ public class DataServiceTests
     public async Task UpdateRecordAsync_ShouldFilterFieldsAndCallPatch()
     {
         // Arrange
-        var id = "001xxx";
+        var id = "001000000000001";
         var data = new Dictionary<string, object?>
         {
             { "Name", "Updated Account" },
@@ -169,7 +169,7 @@ public class DataServiceTests
     public async Task DeleteRecordAsync_ShouldCallDelete()
     {
         // Arrange
-        var id = "001xxx";
+        var id = "001000000000001";
 
         _mockClient.Setup(c => c.DeleteAsync(
                 It.IsAny<string>(),
@@ -276,7 +276,7 @@ public class DataServiceTests
                 new SObjectField { Name = "External_Id__c", Createable = true }
             });
 
-        var response = new JsonObject { ["id"] = "001xxx", ["created"] = true };
+        var response = new JsonObject { ["id"] = "001000000000001", ["created"] = true };
         _mockClient.Setup(c => c.PatchAsync<JsonNode>(
                 It.IsAny<string>(),
                 It.IsAny<object>(),
@@ -909,7 +909,7 @@ public class DataServiceTests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<Security.FlsException>(() =>
-            service.UpdateRecordAsync("Account", "001xxx", data));
+            service.UpdateRecordAsync("Account", "001000000000001", data));
 
         exception.Violations.Should().Contain(v => v.FieldName == "ReadOnlyField");
         exception.Violations[0].Operation.Should().Be(Security.FlsOperation.Update);
