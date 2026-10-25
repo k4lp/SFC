@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -7,25 +6,35 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SalesforceCore.Http;
 using SalesforceCore.Models.Configuration;
-using SalesforceCore.Models.Data;
 using SalesforceCore.Models.Errors;
+using SalesforceCore.Security;
 
 namespace SalesforceCore.Services.Core;
 
 /// <summary>
-/// HTTP client implementation for Salesforce REST API.
-/// Handles authentication, serialization, and error handling.
+/// Authenticated transport for the Salesforce REST API.
 /// </summary>
+/// <remarks>
+/// <para>All verbs funnel into one path (<see cref="SendAsync"/>): resolve token + validated instance URL, build the
+/// URL under the configured <see cref="SalesforceApiVersion"/>, send through the HttpClient pipeline
+/// (user handlers → logging → API-usage tracking → resilience), refresh the token once on 401, and map failures to the
+/// typed <see cref="SalesforceException"/> hierarchy via <see cref="SalesforceErrorMapper"/>.</para>
+/// <para>The client never filters or blocks requests for authorization reasons: Salesforce enforces access and its
+/// errors are surfaced as-is.</para>
+/// </remarks>
 public class SalesforceClient : ISalesforceClient
 {
     private readonly HttpClient _httpClient;
     private readonly ITokenProvider _tokenProvider;
     private readonly SalesforceOptions _options;
     private readonly ILogger<SalesforceClient> _logger;
-    private volatile string? _instanceUrl; // Volatile for thread-safe reads
-    
-    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
+    private readonly SalesforceApiVersion _apiVersion;
+    private volatile string? _instanceUrl;
+
+    /// <summary>Serializer options used for request bodies.</summary>
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
@@ -39,198 +48,108 @@ public class SalesforceClient : ISalesforceClient
         IOptions<SalesforceOptions> options,
         ILogger<SalesforceClient> logger)
     {
-        _httpClient = httpClient;
-        _tokenProvider = tokenProvider;
-        _options = options.Value;
-        _logger = logger;
-
-        _httpClient.Timeout = _options.HttpTimeout;
-        _httpClient.DefaultRequestHeaders.Accept.Clear();
-        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _tokenProvider = tokenProvider ?? throw new ArgumentNullException(nameof(tokenProvider));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _apiVersion = SalesforceApiVersion.TryParse(_options.ApiVersion, out var v)
+            ? v
+            : throw new ArgumentException($"Invalid SalesforceOptions.ApiVersion '{_options.ApiVersion}'. Expected e.g. 'v62.0'.");
     }
 
     /// <inheritdoc/>
     public string InstanceUrl => _instanceUrl ?? throw new InvalidOperationException("Instance URL not set. Ensure authentication is complete.");
 
     /// <inheritdoc/>
-    public string ApiVersion => _options.ApiVersion;
+    public string ApiVersion => _apiVersion.ToString();
+
+    // ------------------------------------------------------------------ core path
+
+    /// <inheritdoc/>
+    public async Task<SalesforceResponse> SendAsync(SalesforceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        using var response = await SendWithRefreshAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        var content = response.Content == null ? string.Empty : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (request.ThrowOnError && !response.IsSuccessStatusCode)
+        {
+            throw MapError(response, content);
+        }
+        return new SalesforceResponse((int)response.StatusCode, CollectHeaders(response), content, response.Content?.Headers.ContentType?.MediaType);
+    }
 
     /// <inheritdoc/>
     public async Task<T> GetAsync<T>(string endpoint, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Get, endpoint, null, cancellationToken);
-        return DeserializeOrEmpty<T>(response);
-    }
+        => Deserialize<T>(await SendAsync(SalesforceRequest.Get(endpoint), cancellationToken).ConfigureAwait(false));
 
     /// <inheritdoc/>
     public async Task<JsonNode> GetAsync(string endpoint, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Get, endpoint, null, cancellationToken);
-        return string.IsNullOrWhiteSpace(response) ? new JsonObject() : JsonNode.Parse(response)!;
-    }
+        => (await SendAsync(SalesforceRequest.Get(endpoint), cancellationToken).ConfigureAwait(false)).AsJson();
 
     /// <inheritdoc/>
     public async Task<T> PostAsync<T>(string endpoint, object payload, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Post, endpoint, payload, cancellationToken);
-        return DeserializeOrEmpty<T>(response);
-    }
+        => Deserialize<T>(await SendAsync(SalesforceRequest.Post(endpoint, payload), cancellationToken).ConfigureAwait(false));
 
     /// <inheritdoc/>
     public async Task<JsonNode> PostAsync(string endpoint, object payload, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Post, endpoint, payload, cancellationToken);
-        return string.IsNullOrWhiteSpace(response) ? new JsonObject() : JsonNode.Parse(response)!;
-    }
+        => (await SendAsync(SalesforceRequest.Post(endpoint, payload), cancellationToken).ConfigureAwait(false)).AsJson();
 
     /// <inheritdoc/>
     public async Task<T> PutAsync<T>(string endpoint, object payload, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Put, endpoint, payload, cancellationToken);
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            if (typeof(T) == typeof(JsonNode) || typeof(T) == typeof(JsonObject))
-            {
-                return (T)(object)new JsonObject();
-            }
-
-            if (typeof(T) == typeof(JsonArray))
-            {
-                return (T)(object)new JsonArray();
-            }
-
-            return default!;
-        }
-        return JsonSerializer.Deserialize<T>(response)!;
-    }
+        => Deserialize<T>(await SendAsync(SalesforceRequest.Put(endpoint, payload), cancellationToken).ConfigureAwait(false));
 
     /// <inheritdoc/>
     public async Task<JsonNode> PutAsync(string endpoint, object payload, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Put, endpoint, payload, cancellationToken);
-        // Some Salesforce endpoints may return 204 No Content on PUT-like operations.
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            return new JsonObject();
-        }
-        return JsonNode.Parse(response)!;
-    }
+        => (await SendAsync(SalesforceRequest.Put(endpoint, payload), cancellationToken).ConfigureAwait(false)).AsJson();
 
     /// <inheritdoc/>
     public async Task<T> PatchAsync<T>(string endpoint, object payload, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Patch, endpoint, payload, cancellationToken);
-
-        // Salesforce PATCH commonly returns 204 No Content (empty body) on success.
-        // For JSON node types, return an empty object to avoid null dereferences in callers.
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            if (typeof(T) == typeof(JsonNode) || typeof(T) == typeof(JsonObject))
-            {
-                return (T)(object)new JsonObject();
-            }
-
-            if (typeof(T) == typeof(JsonArray))
-            {
-                return (T)(object)new JsonArray();
-            }
-
-            return default!;
-        }
-
-        return JsonSerializer.Deserialize<T>(response)!;
-    }
+        => Deserialize<T>(await SendAsync(SalesforceRequest.Patch(endpoint, payload), cancellationToken).ConfigureAwait(false));
 
     /// <inheritdoc/>
     public async Task<JsonNode> PatchAsync(string endpoint, object payload, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Patch, endpoint, payload, cancellationToken);
-        // Salesforce PATCH returns 204 No Content (empty response) on success.
-        // Return an empty object to keep downstream callers safe (e.g., .AsObject()).
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            return new JsonObject();
-        }
-        return JsonNode.Parse(response)!;
-    }
+        => (await SendAsync(SalesforceRequest.Patch(endpoint, payload), cancellationToken).ConfigureAwait(false)).AsJson();
 
     /// <inheritdoc/>
     public async Task DeleteAsync(string endpoint, CancellationToken cancellationToken = default)
-    {
-        await SendRequestAsync(HttpMethod.Delete, endpoint, null, cancellationToken);
-    }
+        => await SendAsync(SalesforceRequest.Delete(endpoint), cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc/>
     public async Task<T> DeleteAsync<T>(string endpoint, CancellationToken cancellationToken = default)
-    {
-        var response = await SendRequestAsync(HttpMethod.Delete, endpoint, null, cancellationToken);
-        // Salesforce DELETE commonly returns 204 No Content (empty body) on success.
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            if (typeof(T) == typeof(JsonNode) || typeof(T) == typeof(JsonObject))
-            {
-                return (T)(object)new JsonObject();
-            }
+        => Deserialize<T>(await SendAsync(SalesforceRequest.Delete(endpoint), cancellationToken).ConfigureAwait(false));
 
-            if (typeof(T) == typeof(JsonArray))
-            {
-                return (T)(object)new JsonArray();
-            }
+    /// <inheritdoc/>
+    public async Task PutRawAsync(string endpoint, string content, string contentType, CancellationToken cancellationToken = default)
+        => await SendAsync(new SalesforceRequest(HttpMethod.Put, endpoint) { TextBody = content, ContentType = contentType }, cancellationToken).ConfigureAwait(false);
 
-            return default!;
-        }
-        return JsonSerializer.Deserialize<T>(response)!;
-    }
+    /// <inheritdoc/>
+    public async Task<string> GetRawAsync(string endpoint, string acceptHeader, CancellationToken cancellationToken = default)
+        => (await SendAsync(new SalesforceRequest(HttpMethod.Get, endpoint) { Accept = acceptHeader }, cancellationToken).ConfigureAwait(false)).Content;
 
     /// <inheritdoc/>
     public async Task<byte[]> GetBytesAsync(string endpoint, CancellationToken cancellationToken = default)
     {
-        HttpRequestMessage? last = null;
-        try
-        {
-            using var response = await SendWithRefreshAsync(token =>
-            {
-                last = new HttpRequestMessage(HttpMethod.Get, BuildApiUrl(endpoint));
-                AddAuthHeader(last, token);
-                return last;
-            }, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            await EnsureSuccessAsync(response, cancellationToken);
-            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        }
-        finally
-        {
-            last?.Dispose();
-        }
+        using var response = await SendWithRefreshAsync(SalesforceRequest.Get(endpoint), HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The returned stream wraps both the content stream and the HTTP response.
-    /// When the stream is disposed, it will properly dispose the underlying HTTP response
-    /// to prevent memory leaks and connection pool exhaustion.
+    /// The returned stream owns the HTTP response; dispose it to release the connection.
     /// </remarks>
     public async Task<Stream> GetStreamAsync(string endpoint, CancellationToken cancellationToken = default)
     {
-        HttpRequestMessage? request = null;
-        var response = await SendWithRefreshAsync(token =>
-        {
-            request = new HttpRequestMessage(HttpMethod.Get, BuildApiUrl(endpoint));
-            AddAuthHeader(request, token);
-            return request;
-        }, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-
+        var response = await SendWithRefreshAsync(SalesforceRequest.Get(endpoint), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureSuccessAsync(response, cancellationToken);
-            var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            // Return a wrapper stream that disposes the response when the stream is closed
-            return new ResponseStreamWrapper(contentStream, response, request!);
+            await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+            var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            return new ResponseStreamWrapper(contentStream, response);
         }
         catch
         {
             response.Dispose();
-            request?.Dispose();
             throw;
         }
     }
@@ -242,176 +161,113 @@ public class SalesforceClient : ISalesforceClient
         {
             throw new InvalidOperationException("Instance URL not set");
         }
+        return $"{_instanceUrl.TrimEnd('/')}{BuildPath(relativePath)}";
+    }
 
-        // Ensure the path starts with /
-        if (!relativePath.StartsWith("/"))
+    /// <summary>
+    /// Normalises an endpoint into an instance-relative path: <c>/services/...</c> paths pass through, anything else is
+    /// placed under <c>/services/data/{ApiVersion}</c>.
+    /// </summary>
+    public string BuildPath(string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        if (!relativePath.StartsWith('/'))
         {
             relativePath = "/" + relativePath;
         }
-
-        // If path doesn't include services/, add the API version path
         if (!relativePath.StartsWith(SalesforceConstants.Paths.ServicesBase, StringComparison.OrdinalIgnoreCase))
         {
-            relativePath = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{relativePath}";
+            relativePath = $"{_apiVersion.DataPath}{relativePath}";
         }
-
-        return $"{_instanceUrl.TrimEnd('/')}{relativePath}";
+        return relativePath;
     }
 
     /// <inheritdoc/>
     public async Task<string?> GetAccessTokenAsync(CancellationToken cancellationToken = default)
-    {
-        return await _tokenProvider.GetAccessTokenAsync(cancellationToken);
-    }
+        => await _tokenProvider.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
 
-    /// <inheritdoc/>
-    public async Task PutRawAsync(string endpoint, string content, string contentType, CancellationToken cancellationToken = default)
-    {
-        if (_options.EnableDebugLogging)
-        {
-            _logger.LogDebug("Salesforce API PUT (raw) {Endpoint}, ContentType: {ContentType}", endpoint, contentType);
-        }
+    // ------------------------------------------------------------------ internals
 
-        HttpRequestMessage? last = null;
-        try
+    private async Task<HttpResponseMessage> SendWithRefreshAsync(SalesforceRequest request, HttpCompletionOption completion, CancellationToken cancellationToken)
+    {
+        var token = await EnsureAuthenticatedAndGetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+        for (var attempt = 0; ; attempt++)
         {
-            using var response = await SendWithRefreshAsync(token =>
+            var message = CreateMessage(request, token);
+            HttpResponseMessage response;
+            try
             {
-                last = new HttpRequestMessage(HttpMethod.Put, BuildApiUrl(endpoint));
-                AddAuthHeader(last, token);
-                last.Content = new StringContent(content, Encoding.UTF8, contentType);
-                return last;
-            }, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            await EnsureSuccessAsync(response, cancellationToken);
-        }
-        finally
-        {
-            last?.Dispose();
-        }
-    }
-
-    /// <inheritdoc/>
-    public async Task<string> GetRawAsync(string endpoint, string acceptHeader, CancellationToken cancellationToken = default)
-    {
-        if (_options.EnableDebugLogging)
-        {
-            _logger.LogDebug("Salesforce API GET (raw) {Endpoint}, Accept: {Accept}", endpoint, acceptHeader);
-        }
-
-        HttpRequestMessage? last = null;
-        try
-        {
-            using var response = await SendWithRefreshAsync(token =>
-            {
-                last = new HttpRequestMessage(HttpMethod.Get, BuildApiUrl(endpoint));
-                AddAuthHeader(last, token);
-                last.Headers.Accept.Clear();
-                last.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(acceptHeader));
-                return last;
-            }, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            await EnsureSuccessAsync(response, cancellationToken);
-            return await response.Content.ReadAsStringAsync(cancellationToken);
-        }
-        finally
-        {
-            last?.Dispose();
-        }
-    }
-
-    private async Task<string> SendRequestAsync(
-        HttpMethod method,
-        string endpoint,
-        object? payload,
-        CancellationToken cancellationToken,
-        int retryCount = 0,
-        string? accessTokenOverride = null)
-    {
-        string token;
-        if (!string.IsNullOrWhiteSpace(accessTokenOverride))
-        {
-            token = accessTokenOverride;
-            await EnsureInstanceUrlAsync(cancellationToken);
-        }
-        else
-        {
-            token = await EnsureAuthenticatedAndGetAccessTokenAsync(cancellationToken);
-        }
-
-        var url = BuildApiUrl(endpoint);
-
-        using var request = new HttpRequestMessage(method, url);
-        AddAuthHeader(request, token);
-
-        if (payload != null)
-        {
-            request.Content = JsonContent.Create(payload, mediaType: null, options: _jsonSerializerOptions);
-        }
-
-        if (_options.EnableDebugLogging)
-        {
-            _logger.LogDebug("Salesforce API {Method} {Url}", method, url);
-        }
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await _httpClient.SendAsync(request, cancellationToken);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "HTTP request failed: {Method} {Url}", method, url);
-            throw new SalesforceException($"HTTP request failed: {ex.Message}", innerException: ex);
-        }
-
-        // Handle 401 - Token may have expired
-        // We handle this explicitly here because it requires a specific "Refresh Token" action,
-        // which standard resilience policies don't know how to perform.
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            // Dispose the 401 response before retrying
-            response.Dispose();
-
-            if (retryCount < 1)
-            {
-                _logger.LogWarning("Received 401, attempting token refresh");
-                var newToken = await _tokenProvider.RefreshTokenAsync(cancellationToken);
-                if (!string.IsNullOrWhiteSpace(newToken))
-                {
-                    // Recursive retry with fresh token, incrementing retry count to prevent infinite loops
-                    return await SendRequestAsync(
-                        method,
-                        endpoint,
-                        payload,
-                        cancellationToken,
-                        retryCount + 1,
-                        accessTokenOverride: newToken);
-                }
+                response = await _httpClient.SendAsync(message, completion, cancellationToken).ConfigureAwait(false);
             }
-            throw SalesforceAuthException.TokenExpiredException();
-        }
-
-        // Rate limiting (429) and transient errors (5xx) are now handled by the
-        // Polly policy registered in ServiceCollectionExtensions.
-        // We simply check for success here.
-
-        try
-        {
-            await EnsureSuccessAsync(response, cancellationToken);
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (_options.EnableDebugLogging)
+            catch (HttpRequestException ex)
             {
-                _logger.LogDebug("Salesforce API response: {StatusCode} {Length} bytes",
-                    response.StatusCode, content.Length);
+                message.Dispose();
+                _logger.LogError(ex, "Salesforce HTTP request failed: {Method} {Path}", request.Method, PathForLog(request.Path));
+                throw new SalesforceConnectionException($"HTTP request failed: {ex.Message}", ex);
+            }
+            catch (Exception ex) when (ex is TaskCanceledException or TimeoutException or Polly.Timeout.TimeoutRejectedException && !cancellationToken.IsCancellationRequested)
+            {
+                message.Dispose();
+                throw new SalesforceConnectionException("The Salesforce request timed out.", ex);
             }
 
-            return content;
-        }
-        finally
-        {
+            if (response.StatusCode != HttpStatusCode.Unauthorized)
+            {
+                // The message is owned by the response's lifetime for streaming; HttpClient does not need it afterwards.
+                return response;
+            }
+
+            // 401: refresh once (resilience policies can't perform a token refresh).
             response.Dispose();
+            message.Dispose();
+            if (attempt >= 1)
+            {
+                throw SalesforceAuthException.TokenExpiredException();
+            }
+
+            _logger.LogWarning("Received 401, attempting token refresh");
+            var newToken = await _tokenProvider.RefreshTokenAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(newToken))
+            {
+                throw SalesforceAuthException.TokenExpiredException();
+            }
+            token = newToken;
+            await EnsureInstanceUrlAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private HttpRequestMessage CreateMessage(SalesforceRequest request, string token)
+    {
+        var message = new HttpRequestMessage(request.Method, BuildApiUrl(request.Path));
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        message.Headers.Accept.Clear();
+        message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(request.Accept ?? SalesforceConstants.Headers.ContentTypeJson));
+
+        foreach (var (name, value) in request.Headers)
+        {
+            if (name.Equals("Authorization", StringComparison.OrdinalIgnoreCase) || name.Equals("Host", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Header '{name}' is managed by the client and cannot be overridden.");
+            }
+            message.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        if (request.JsonBody != null)
+        {
+            var json = JsonSerializer.SerializeToUtf8Bytes(request.JsonBody, request.JsonBody.GetType(), JsonOptions);
+            message.Content = new ByteArrayContent(json);
+            message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        }
+        else if (request.TextBody != null)
+        {
+            message.Content = new StringContent(request.TextBody, Encoding.UTF8, request.ContentType ?? "text/plain");
+        }
+        else if (request.BinaryBody is { } bytes)
+        {
+            message.Content = new ReadOnlyMemoryContent(bytes);
+            message.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(request.ContentType ?? "application/octet-stream");
+        }
+        return message;
     }
 
     private string ValidateInstanceUrl(string instanceUrl)
@@ -421,7 +277,7 @@ public class SalesforceClient : ISalesforceClient
             return instanceUrl;
         }
 
-        if (!SalesforceCore.Security.SalesforceUrlValidator.TryValidate(instanceUrl, _options.AdditionalAllowedHosts, out var reason))
+        if (!SalesforceUrlValidator.TryValidate(instanceUrl, _options.AdditionalAllowedHosts, out var reason))
         {
             _logger.LogError("Refusing to send access token to untrusted instance URL: {Reason}", reason);
             throw new SalesforceAuthException($"Rejected Salesforce instance URL: {reason}");
@@ -432,7 +288,7 @@ public class SalesforceClient : ISalesforceClient
 
     private async Task EnsureInstanceUrlAsync(CancellationToken cancellationToken)
     {
-        var instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken);
+        var instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(instanceUrl))
         {
             _instanceUrl = ValidateInstanceUrl(instanceUrl);
@@ -447,26 +303,25 @@ public class SalesforceClient : ISalesforceClient
 
     private async Task<string> EnsureAuthenticatedAndGetAccessTokenAsync(CancellationToken cancellationToken)
     {
-        var token = await _tokenProvider.GetAccessTokenAsync(cancellationToken);
+        var token = await _tokenProvider.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrEmpty(token))
         {
             throw SalesforceAuthException.MissingTokenException();
         }
 
-        var instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken);
+        var instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(instanceUrl))
         {
             _instanceUrl = ValidateInstanceUrl(instanceUrl);
             return token;
         }
 
-        // Best-effort recovery: some providers populate instance_url during refresh/auth flows.
-        // Avoid failing when the provider is lazily authenticated (e.g., server-to-server providers).
-        var refreshedToken = await _tokenProvider.RefreshTokenAsync(cancellationToken);
+        // Some providers only learn instance_url during a refresh (lazy server-to-server flows).
+        var refreshedToken = await _tokenProvider.RefreshTokenAsync(cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(refreshedToken))
         {
             token = refreshedToken;
-            instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken);
+            instanceUrl = await _tokenProvider.GetInstanceUrlAsync(cancellationToken).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(instanceUrl))
             {
                 _instanceUrl = ValidateInstanceUrl(instanceUrl);
@@ -482,154 +337,73 @@ public class SalesforceClient : ISalesforceClient
         return token;
     }
 
-    private static T DeserializeOrEmpty<T>(string response)
-    {
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            if (typeof(T) == typeof(JsonNode) || typeof(T) == typeof(JsonObject))
-            {
-                return (T)(object)new JsonObject();
-            }
-
-            if (typeof(T) == typeof(JsonArray))
-            {
-                return (T)(object)new JsonArray();
-            }
-
-            return default!;
-        }
-
-        return JsonSerializer.Deserialize<T>(response)!;
-    }
-
-    /// <summary>
-    /// Sends a request built by <paramref name="factory"/>, refreshing the token once on 401.
-    /// The caller owns (and must dispose) the returned response.
-    /// </summary>
-    private async Task<HttpResponseMessage> SendWithRefreshAsync(
-        Func<string, HttpRequestMessage> factory,
-        HttpCompletionOption completion,
-        CancellationToken cancellationToken)
-    {
-        var token = await EnsureAuthenticatedAndGetAccessTokenAsync(cancellationToken);
-        for (var attempt = 0; ; attempt++)
-        {
-            var request = factory(token);
-            HttpResponseMessage response;
-            try
-            {
-                response = await _httpClient.SendAsync(request, completion, cancellationToken);
-            }
-            catch (HttpRequestException ex)
-            {
-                request.Dispose();
-                throw new SalesforceException($"HTTP request failed: {ex.Message}", innerException: ex);
-            }
-
-            if (response.StatusCode != HttpStatusCode.Unauthorized)
-            {
-                return response;
-            }
-
-            response.Dispose();
-            request.Dispose();
-            if (attempt >= 1)
-            {
-                throw SalesforceAuthException.TokenExpiredException();
-            }
-
-            _logger.LogWarning("Received 401, attempting token refresh");
-            var newToken = await _tokenProvider.RefreshTokenAsync(cancellationToken);
-            if (string.IsNullOrWhiteSpace(newToken))
-            {
-                throw SalesforceAuthException.TokenExpiredException();
-            }
-            token = newToken;
-            await EnsureInstanceUrlAsync(cancellationToken);
-        }
-    }
-
-    private static void AddAuthHeader(HttpRequestMessage request, string accessToken)
-    {
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-    }
-
     private async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)
         {
             return;
         }
+        var content = response.Content == null ? string.Empty : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        throw MapError(response, content);
+    }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var statusCode = (int)response.StatusCode;
+    private SalesforceException MapError(HttpResponseMessage response, string content)
+    {
+        var requestId = response.Headers.TryGetValues("Sforce-Request-Id", out var ids) ? ids.FirstOrDefault()
+            : response.Headers.TryGetValues("X-Request-Id", out var xids) ? xids.FirstOrDefault() : null;
+        TimeSpan? retryAfter = response.Headers.RetryAfter?.Delta
+            ?? (response.Headers.RetryAfter?.Date is { } date ? date - DateTimeOffset.UtcNow : null);
+        return SalesforceErrorMapper.FromResponse((int)response.StatusCode, content, requestId, retryAfter, _options.MaxErrorBodyLength);
+    }
 
-        // Try to parse Salesforce error response
-        try
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> CollectHeaders(HttpResponseMessage response)
+    {
+        var headers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in response.Headers) headers[h.Key] = h.Value.ToList();
+        if (response.Content != null)
         {
-            if (!string.IsNullOrWhiteSpace(content))
+            foreach (var h in response.Content.Headers) headers[h.Key] = h.Value.ToList();
+        }
+        return headers;
+    }
+
+    private static T Deserialize<T>(SalesforceResponse response)
+    {
+        if (string.IsNullOrWhiteSpace(response.Content))
+        {
+            if (typeof(T) == typeof(JsonNode) || typeof(T) == typeof(JsonObject))
             {
-                // Salesforce returns errors as an array
-                if (content.TrimStart().StartsWith("["))
-                {
-                    var errors = JsonSerializer.Deserialize<List<SalesforceError>>(content);
-                    if (errors != null && errors.Count > 0)
-                    {
-                        throw SalesforceException.FromErrors(errors, statusCode);
-                    }
-                }
-                else
-                {
-                    var errorObj = JsonNode.Parse(content);
-                    var message = errorObj?["message"]?.ToString() ??
-                                  errorObj?["error_description"]?.ToString() ??
-                                  errorObj?["error"]?.ToString() ??
-                                  content;
-                    var errorCode = errorObj?["errorCode"]?.ToString() ??
-                                    errorObj?["error"]?.ToString();
-
-                    throw new SalesforceException(message, errorCode, statusCode, rawResponse: content);
-                }
+                return (T)(object)new JsonObject();
             }
+            if (typeof(T) == typeof(JsonArray))
+            {
+                return (T)(object)new JsonArray();
+            }
+            return default!;
         }
-        catch (JsonException)
-        {
-            // Not JSON, use raw content
-        }
+        return JsonSerializer.Deserialize<T>(response.Content)!;
+    }
 
-        // Default error handling
-        var defaultMessage = response.StatusCode switch
-        {
-            HttpStatusCode.NotFound => "Resource not found",
-            HttpStatusCode.Forbidden => "Access denied",
-            HttpStatusCode.BadRequest => "Invalid request",
-            HttpStatusCode.InternalServerError => "Salesforce server error",
-            _ => $"HTTP {statusCode}: {response.ReasonPhrase}"
-        };
-
-        throw new SalesforceException(
-            string.IsNullOrWhiteSpace(content) ? defaultMessage : content,
-            httpStatusCode: statusCode,
-            rawResponse: content);
+    internal static string PathForLog(string path)
+    {
+        var q = path.IndexOf('?');
+        return q < 0 ? path : path[..q] + "?…";
     }
 }
 
 /// <summary>
-/// Stream wrapper that ensures proper disposal of HttpResponseMessage when the stream is closed.
-/// Prevents memory leaks and connection pool exhaustion when using GetStreamAsync.
+/// Stream wrapper that disposes the owning <see cref="HttpResponseMessage"/> with the stream.
 /// </summary>
 internal sealed class ResponseStreamWrapper : Stream
 {
     private readonly Stream _innerStream;
     private readonly HttpResponseMessage _response;
-    private readonly HttpRequestMessage _request;
     private bool _disposed;
 
-    public ResponseStreamWrapper(Stream innerStream, HttpResponseMessage response, HttpRequestMessage request)
+    public ResponseStreamWrapper(Stream innerStream, HttpResponseMessage response)
     {
         _innerStream = innerStream ?? throw new ArgumentNullException(nameof(innerStream));
         _response = response ?? throw new ArgumentNullException(nameof(response));
-        _request = request ?? throw new ArgumentNullException(nameof(request));
     }
 
     public override bool CanRead => _innerStream.CanRead;
@@ -644,16 +418,13 @@ internal sealed class ResponseStreamWrapper : Stream
 
     public override void Flush() => _innerStream.Flush();
     public override Task FlushAsync(CancellationToken cancellationToken) => _innerStream.FlushAsync(cancellationToken);
-
     public override int Read(byte[] buffer, int offset, int count) => _innerStream.Read(buffer, offset, count);
     public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         => _innerStream.ReadAsync(buffer, offset, count, cancellationToken);
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         => _innerStream.ReadAsync(buffer, cancellationToken);
-
     public override long Seek(long offset, SeekOrigin origin) => _innerStream.Seek(offset, origin);
     public override void SetLength(long value) => _innerStream.SetLength(value);
-
     public override void Write(byte[] buffer, int offset, int count) => _innerStream.Write(buffer, offset, count);
     public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         => _innerStream.WriteAsync(buffer, offset, count, cancellationToken);
@@ -668,7 +439,6 @@ internal sealed class ResponseStreamWrapper : Stream
             {
                 _innerStream.Dispose();
                 _response.Dispose();
-                _request.Dispose();
             }
             _disposed = true;
         }
@@ -679,11 +449,10 @@ internal sealed class ResponseStreamWrapper : Stream
     {
         if (!_disposed)
         {
-            await _innerStream.DisposeAsync();
+            await _innerStream.DisposeAsync().ConfigureAwait(false);
             _response.Dispose();
-            _request.Dispose();
             _disposed = true;
         }
-        await base.DisposeAsync();
+        await base.DisposeAsync().ConfigureAwait(false);
     }
 }

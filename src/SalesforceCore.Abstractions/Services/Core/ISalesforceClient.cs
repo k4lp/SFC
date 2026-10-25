@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using SalesforceCore.Http;
 
 namespace SalesforceCore.Services.Core;
 
@@ -17,6 +18,14 @@ public interface ISalesforceClient
     /// Gets the configured API version.
     /// </summary>
     string ApiVersion { get; }
+
+    /// <summary>
+    /// Sends any request through the authenticated pipeline and returns the buffered response
+    /// (status, headers, body). This is the universal extension point: every other member is a convenience
+    /// wrapper over it. Non-success statuses throw a typed <see cref="Models.Errors.SalesforceException"/>
+    /// unless <see cref="SalesforceRequest.ThrowOnError"/> is false.
+    /// </summary>
+    Task<SalesforceResponse> SendAsync(SalesforceRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Performs a GET request to the specified endpoint.

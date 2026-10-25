@@ -7,25 +7,42 @@ namespace SalesforceCore.Models.Errors;
 /// </summary>
 public class SalesforceException : Exception
 {
+    private IReadOnlyList<SalesforceError> _errors = Array.Empty<SalesforceError>();
+
     /// <summary>
-    /// Salesforce error code.
+    /// Salesforce error code of the first error (e.g. <c>INVALID_FIELD</c>, <c>NOT_FOUND</c>).
     /// </summary>
-    public string? ErrorCode { get; }
+    public string? ErrorCode { get; private set; }
 
     /// <summary>
     /// HTTP status code if from API response.
     /// </summary>
-    public int? HttpStatusCode { get; }
+    public int? HttpStatusCode { get; private set; }
 
     /// <summary>
     /// Fields related to the error.
     /// </summary>
-    public IReadOnlyList<string>? Fields { get; }
+    public IReadOnlyList<string>? Fields { get; private set; }
 
     /// <summary>
-    /// Raw error response from Salesforce.
+    /// Raw error response from Salesforce (truncated by the client to <c>MaxErrorBodyLength</c>).
     /// </summary>
-    public string? RawResponse { get; }
+    public string? RawResponse { get; private set; }
+
+    /// <summary>
+    /// Every error Salesforce returned (Salesforce error bodies are arrays; the first one drives <see cref="ErrorCode"/>).
+    /// </summary>
+    public IReadOnlyList<SalesforceError> Errors => _errors;
+
+    /// <summary>
+    /// Salesforce request id (<c>Sforce-Request-Id</c>), when the error came from an API response. Quote it in support cases.
+    /// </summary>
+    public string? RequestId { get; private set; }
+
+    /// <summary>
+    /// True when retrying the same request later may succeed (rate limits, row locks, 5xx, transport failures).
+    /// </summary>
+    public virtual bool IsTransient => HttpStatusCode is 408 or 429 or >= 500;
 
     /// <summary>
     /// Creates a new SalesforceException.
@@ -61,42 +78,34 @@ public class SalesforceException : Exception
     }
 
     /// <summary>
-    /// Creates a SalesforceException from a SalesforceError.
+    /// Attaches response context (actual status, all errors, raw body, request id). Used by <see cref="SalesforceErrorMapper"/>.
     /// </summary>
-    public static SalesforceException FromError(SalesforceError error, int? statusCode = null)
+    internal SalesforceException WithResponse(int? status, IReadOnlyList<SalesforceError>? errors, string? rawResponse, string? requestId)
     {
-        return new SalesforceException(
-            error.Message,
-            error.ErrorCode,
-            statusCode,
-            error.Fields);
+        if (status.HasValue) HttpStatusCode = status;
+        if (errors is { Count: > 0 })
+        {
+            _errors = errors;
+            ErrorCode ??= errors[0].ErrorCode;
+            var fields = errors.SelectMany(e => e.Fields ?? Enumerable.Empty<string>()).Distinct().ToList();
+            if (fields.Count > 0) Fields = fields;
+        }
+        RawResponse ??= rawResponse;
+        RequestId ??= requestId;
+        return this;
     }
 
     /// <summary>
-    /// Creates a SalesforceException from multiple errors.
+    /// Creates a SalesforceException (the most specific subtype for the error code) from a SalesforceError.
+    /// </summary>
+    public static SalesforceException FromError(SalesforceError error, int? statusCode = null)
+        => SalesforceErrorMapper.FromErrors(new[] { error }, statusCode);
+
+    /// <summary>
+    /// Creates a SalesforceException (the most specific subtype for the first error code) from multiple errors.
     /// </summary>
     public static SalesforceException FromErrors(IEnumerable<SalesforceError> errors, int? statusCode = null)
-    {
-        var errorList = errors.ToList();
-        if (errorList.Count == 0)
-        {
-            return new SalesforceException("Unknown Salesforce error", httpStatusCode: statusCode);
-        }
-
-        if (errorList.Count == 1)
-        {
-            return FromError(errorList[0], statusCode);
-        }
-
-        var message = string.Join("; ", errorList.Select(e => $"[{e.ErrorCode}] {e.Message}"));
-        var allFields = errorList.SelectMany(e => e.Fields ?? Enumerable.Empty<string>()).Distinct();
-
-        return new SalesforceException(
-            message,
-            errorList[0].ErrorCode,
-            statusCode,
-            allFields);
-    }
+        => SalesforceErrorMapper.FromErrors(errors, statusCode);
 
     /// <inheritdoc/>
     public override string ToString()
@@ -108,6 +117,29 @@ public class SalesforceException : Exception
         }
         return result;
     }
+}
+
+/// <summary>
+/// Thrown when the Salesforce API could not be reached (DNS, TLS, connection reset, timeout).
+/// </summary>
+public class SalesforceConnectionException : SalesforceException
+{
+    /// <summary>Creates a new SalesforceConnectionException.</summary>
+    public SalesforceConnectionException(string message, Exception? innerException = null)
+        : base(message, "CONNECTION_FAILED", null, null, null, innerException) { }
+
+    /// <inheritdoc/>
+    public override bool IsTransient => true;
+}
+
+/// <summary>
+/// Thrown for Salesforce 5xx responses (server error, unavailable, maintenance).
+/// </summary>
+public class SalesforceServerException : SalesforceException
+{
+    /// <summary>Creates a new SalesforceServerException.</summary>
+    public SalesforceServerException(string message, string? errorCode = null, int statusCode = 500)
+        : base(message, errorCode, statusCode) { }
 }
 
 /// <summary>
@@ -312,6 +344,9 @@ public class SalesforceRateLimitException : SalesforceException
     {
         RetryAfter = retryAfter;
     }
+
+    /// <inheritdoc/>
+    public override bool IsTransient => true;
 }
 
 /// <summary>
@@ -454,4 +489,7 @@ public class SalesforceRecordLockedException : SalesforceException
     {
         RecordId = recordId;
     }
+
+    /// <inheritdoc/>
+    public override bool IsTransient => true;
 }

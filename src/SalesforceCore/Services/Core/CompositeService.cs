@@ -96,7 +96,7 @@ public class CompositeService : ICompositeService
     }
 
     /// <inheritdoc/>
-    public CompositeGraphBuilder CreateGraphBuilder() => new CompositeGraphBuilder();
+    public CompositeGraphBuilder CreateGraphBuilder() => new CompositeGraphBuilder(_options.ApiVersion);
 
     #endregion
 

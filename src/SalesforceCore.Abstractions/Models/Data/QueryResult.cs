@@ -135,53 +135,6 @@ public class CreateResult
 }
 
 /// <summary>
-/// Result of a batch operation.
-/// </summary>
-public class BatchResult
-{
-    /// <summary>
-    /// Whether all operations were successful.
-    /// </summary>
-    public bool AllSuccessful => !Results.Any(r => !r.Success);
-
-    /// <summary>
-    /// Number of successful operations.
-    /// </summary>
-    public int SuccessCount => Results.Count(r => r.Success);
-
-    /// <summary>
-    /// Number of failed operations.
-    /// </summary>
-    public int ErrorCount => Results.Count(r => !r.Success);
-
-    /// <summary>
-    /// Individual operation results.
-    /// </summary>
-    public List<BatchItemResult> Results { get; set; } = new();
-}
-
-/// <summary>
-/// Result of a single batch operation item.
-/// </summary>
-public class BatchItemResult
-{
-    /// <summary>
-    /// ID of the affected record.
-    /// </summary>
-    public string? Id { get; set; }
-
-    /// <summary>
-    /// Whether this operation was successful.
-    /// </summary>
-    public bool Success { get; set; }
-
-    /// <summary>
-    /// Errors for this operation.
-    /// </summary>
-    public List<SalesforceError> Errors { get; set; } = new();
-}
-
-/// <summary>
 /// Represents a Salesforce API error.
 /// </summary>
 public class SalesforceError

@@ -351,7 +351,35 @@ public class GraphResponseContent
 /// </summary>
 public class CompositeGraphBuilder
 {
+    private static readonly System.Text.RegularExpressions.Regex ReferencePattern =
+        new(@"^@\{[A-Za-z0-9_]{1,80}\.[A-Za-z0-9_]{1,80}\}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
     private readonly CompositeGraphRequest _request = new();
+    private readonly string _dataPath;
+
+    /// <summary>
+    /// Creates a builder using the library default API version. Prefer <see cref="Services.Core.ICompositeService.CreateGraphBuilder"/>,
+    /// which uses the configured version.
+    /// </summary>
+    public CompositeGraphBuilder() : this(SalesforceConstants.DefaultApiVersion) { }
+
+    /// <summary>
+    /// Creates a builder that targets the given API version (e.g. <c>v62.0</c>).
+    /// </summary>
+    public CompositeGraphBuilder(string apiVersion)
+    {
+        _dataPath = SalesforceApiVersion.Parse(apiVersion).DataPath;
+    }
+
+    private string SObjectUrl(string objectName, string? id = null)
+    {
+        if (!Utilities.SecurityUtils.IsValidObjectName(objectName))
+            throw new ArgumentException($"Invalid object name: {objectName}", nameof(objectName));
+        if (id == null) return $"{_dataPath}/sobjects/{objectName}";
+        if (!Utilities.SecurityUtils.IsValidSalesforceId(id) && !ReferencePattern.IsMatch(id))
+            throw new ArgumentException($"Invalid record id or reference: {id}", nameof(id));
+        return $"{_dataPath}/sobjects/{objectName}/{id}";
+    }
     private GraphDefinition? _currentGraph;
     private int _graphCounter;
     private int _referenceCounter;
@@ -387,7 +415,7 @@ public class CompositeGraphBuilder
         _currentGraph!.CompositeRequest.Add(new CompositeSubRequest
         {
             Method = "POST",
-            Url = $"/services/data/{SalesforceConstants.DefaultApiVersion}/sobjects/{objectName}",
+            Url = SObjectUrl(objectName),
             ReferenceId = referenceId,
             Body = data
         });
@@ -410,7 +438,7 @@ public class CompositeGraphBuilder
         _currentGraph!.CompositeRequest.Add(new CompositeSubRequest
         {
             Method = "PATCH",
-            Url = $"/services/data/{SalesforceConstants.DefaultApiVersion}/sobjects/{objectName}/{id}",
+            Url = SObjectUrl(objectName, id),
             ReferenceId = referenceId,
             Body = data
         });
@@ -432,7 +460,7 @@ public class CompositeGraphBuilder
         _currentGraph!.CompositeRequest.Add(new CompositeSubRequest
         {
             Method = "DELETE",
-            Url = $"/services/data/{SalesforceConstants.DefaultApiVersion}/sobjects/{objectName}/{id}",
+            Url = SObjectUrl(objectName, id),
             ReferenceId = referenceId
         });
         return this;
@@ -466,7 +494,8 @@ public class CompositeGraphBuilder
         _currentGraph!.CompositeRequest.Add(new CompositeSubRequest
         {
             Method = "GET",
-                            Url = $"/services/data/{SalesforceConstants.DefaultApiVersion}/query?q={UrlUtils.Escape(soql)}",            ReferenceId = referenceId
+            Url = $"{_dataPath}/query?q={UrlUtils.Escape(soql)}",
+            ReferenceId = referenceId
         });
         return this;
     }

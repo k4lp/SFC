@@ -21,7 +21,7 @@ public static class SalesforceConstants
     /// <summary>
     /// Default Salesforce REST API version.
     /// </summary>
-    public const string DefaultApiVersion = "v60.0";
+    public const string DefaultApiVersion = "v62.0";
 
     #endregion
 
@@ -350,7 +350,7 @@ public static class SalesforceConstants
         /// <summary>
         /// User-Agent header value.
         /// </summary>
-        public const string UserAgent = "SalesforceCore/1.0";
+        public const string UserAgent = "SalesforceCore/2.0";
 
         /// <summary>
         /// Sforce-Auto-Assign header for assignment rule control.

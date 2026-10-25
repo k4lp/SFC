@@ -76,18 +76,17 @@ public class DataService : IDataService
         if (string.IsNullOrEmpty(nextRecordsUrl))
             throw new ArgumentException("nextRecordsUrl is required", nameof(nextRecordsUrl));
 
-        // The nextRecordsUrl is relative to the instance, extract just the path
-        var path = nextRecordsUrl;
-        if (nextRecordsUrl.Contains("/services/data/"))
+        // nextRecordsUrl is instance-relative (/services/data/vXX.X/query/01g...-2000). Pass /services/ paths through
+        // untouched (whatever API version Salesforce returned); only strip a scheme+host if one was supplied.
+        var path = nextRecordsUrl.Trim();
+        var idx = path.IndexOf("/services/", StringComparison.OrdinalIgnoreCase);
+        if (idx > 0)
         {
-            var idx = nextRecordsUrl.IndexOf("/services/data/", StringComparison.OrdinalIgnoreCase);
-            path = nextRecordsUrl.Substring(idx);
+            path = path.Substring(idx);
         }
-
-        // Remove the API version prefix if present since the client will add it
-        if (path.StartsWith($"/services/data/{_options.ApiVersion}", StringComparison.OrdinalIgnoreCase))
+        if (path.Contains("..", StringComparison.Ordinal) || path.Contains('\\') || path.Contains("//", StringComparison.Ordinal))
         {
-            path = path.Substring($"/services/data/{_options.ApiVersion}".Length);
+            throw new ArgumentException("Invalid nextRecordsUrl.", nameof(nextRecordsUrl));
         }
 
         return await _client.GetAsync<QueryResult>(path, cancellationToken);
