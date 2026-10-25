@@ -27,7 +27,6 @@ public class SalesforceController : Controller
     private readonly ISchemaService _schemaService;
     private readonly IDataService _dataService;
     private readonly IConfigurationService _configService;
-    private readonly IVisibilityService _visibilityService;
     private readonly SalesforceOptions _options;
     private readonly SalesforceMvcOptions _mvcOptions;
     private readonly ILogger<SalesforceController> _logger;
@@ -39,7 +38,6 @@ public class SalesforceController : Controller
         ISchemaService schemaService,
         IDataService dataService,
         IConfigurationService configService,
-        IVisibilityService visibilityService,
         IOptions<SalesforceOptions> options,
         IOptions<SalesforceMvcOptions> mvcOptions,
         ILogger<SalesforceController> logger)
@@ -47,7 +45,6 @@ public class SalesforceController : Controller
         _schemaService = schemaService;
         _dataService = dataService;
         _configService = configService;
-        _visibilityService = visibilityService;
         _options = options.Value;
         _mvcOptions = mvcOptions.Value;
         _logger = logger;
@@ -72,16 +69,6 @@ public class SalesforceController : Controller
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
 
-        // Enforce Visibility Policy
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                _logger.LogWarning("Access denied to object {SObject} due to visibility policy {Policy}", sObject, moduleConfig.VisibilityPolicy);
-                return NotFound($"Object '{sObject}' not found or not accessible.");
-            }
-        }
-
         var describe = await _schemaService.GetDescribeAsync(sObject);
 
         if (describe == null)
@@ -94,9 +81,7 @@ public class SalesforceController : Controller
             ? moduleConfig.ListFields
             : new List<string> { "Name", "CreatedDate" };
 
-        var validFields = _options.EnforceFieldLevelSecurity
-            ? await _schemaService.SanitizeFieldListWithFlsAsync(sObject, listFields)
-            : await _schemaService.SanitizeFieldListAsync(sObject, listFields);
+        var validFields = await _schemaService.SanitizeFieldListAsync(sObject, listFields);
 
         // Build WHERE condition for search using type-safe condition
         SoqlCondition? filter = null;
@@ -175,13 +160,6 @@ public class SalesforceController : Controller
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
 
         // SFC-02: enforce the module visibility policy on the details view as well (was only on list/create/edit/delete).
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound($"Object '{sObject}' not found.");
-            }
-        }
 
         var describe = await _schemaService.GetDescribeAsync(sObject);
 
@@ -191,9 +169,7 @@ public class SalesforceController : Controller
         }
 
         // Get queryable fields
-        var queryableFields = _options.EnforceFieldLevelSecurity
-            ? await _schemaService.GetAccessibleFieldsAsync(sObject)
-            : await _schemaService.GetQueryableFieldsAsync(sObject);
+        var queryableFields = await _schemaService.GetQueryableFieldsAsync(sObject);
         var fieldNames = queryableFields.Take(200).Select(f => f.Name).ToList();
 
         var record = await _dataService.GetRecordAsync(sObject, id, fieldNames);
@@ -238,24 +214,12 @@ public class SalesforceController : Controller
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
 
         // SFC-02: enforce the module visibility policy on the details view as well (was only on list/create/edit/delete).
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound($"Object '{sObject}' not found.");
-            }
-        }
 
         var describe = await _schemaService.GetDescribeAsync(sObject);
 
         if (describe == null)
         {
             return NotFound($"Object '{sObject}' not found.");
-        }
-
-        if (!describe.Createable)
-        {
-            return Forbid();
         }
 
         var createableFields = await _schemaService.GetCreateableFieldsAsync(sObject);
@@ -289,17 +253,8 @@ public class SalesforceController : Controller
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
 
-        // Enforce Visibility Policy
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound();
-            }
-        }
-
         var describe = await _schemaService.GetDescribeAsync(sObject);
-        if (describe == null || !describe.Createable)
+        if (describe == null)
         {
             return NotFound();
         }
@@ -356,25 +311,11 @@ public class SalesforceController : Controller
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
 
-        // Enforce Visibility Policy
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound($"Object '{sObject}' not found.");
-            }
-        }
-
         var describe = await _schemaService.GetDescribeAsync(sObject);
 
         if (describe == null)
         {
             return NotFound($"Object '{sObject}' not found.");
-        }
-
-        if (!describe.Updateable)
-        {
-            return Forbid();
         }
 
         var updateableFields = await _schemaService.GetUpdateableFieldsAsync(sObject);
@@ -422,17 +363,9 @@ public class SalesforceController : Controller
         }
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
-        // Enforce Visibility Policy
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound();
-            }
-        }
 
         var describe = await _schemaService.GetDescribeAsync(sObject);
-        if (describe == null || !describe.Updateable)
+        if (describe == null)
         {
             return NotFound();
         }
@@ -488,14 +421,6 @@ public class SalesforceController : Controller
         }
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
-        // Enforce Visibility Policy
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound();
-            }
-        }
 
         var describe = await _schemaService.GetDescribeAsync(sObject);
         if (describe == null || !describe.Deletable)
@@ -556,14 +481,6 @@ public class SalesforceController : Controller
         }
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
-        // Enforce Visibility Policy
-        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
-            {
-                return NotFound("Object not found or not accessible.");
-            }
-        }
 
         // SFC-13: the record ID must belong to the object in the route, so the per-object visibility
         // policy above cannot be sidestepped by attaching files to a record of a different object.

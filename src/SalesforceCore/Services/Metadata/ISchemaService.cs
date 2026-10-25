@@ -107,15 +107,6 @@ public interface ISchemaService
     /// <returns>List of accessible fields.</returns>
     Task<List<SObjectField>> GetAccessibleFieldsAsync(string sObject, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Sanitizes a field list ensuring only accessible fields are included (FLS-enforced).
-    /// More restrictive than SanitizeFieldListAsync as it also checks read access.
-    /// </summary>
-    /// <param name="sObject">API name of the object.</param>
-    /// <param name="requestedFields">Fields requested.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Validated list of accessible field names.</returns>
-    Task<List<string>> SanitizeFieldListWithFlsAsync(string sObject, IEnumerable<string> requestedFields, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the picklist values for a field, including dependent picklist logic.

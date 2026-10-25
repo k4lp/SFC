@@ -123,11 +123,6 @@ public class ModuleConfig
     [JsonPropertyName("sortOrder")]
     public int SortOrder { get; set; } = 100;
 
-    /// <summary>
-    /// Visibility policy for access control.
-    /// </summary>
-    [JsonPropertyName("visibilityPolicy")]
-    public string? VisibilityPolicy { get; set; }
 
     /// <summary>
     /// Fields to display in list views.

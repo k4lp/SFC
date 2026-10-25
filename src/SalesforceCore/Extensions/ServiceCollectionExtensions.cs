@@ -272,8 +272,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChangeTracker, ChangeTracker>();
         services.AddScoped<IRecordTypeManager, RecordTypeManager>();
 
-        // Register Field Level Security service
-        services.AddScoped<IFieldLevelSecurityService, FieldLevelSecurityService>();
 
         // Register default UserContextProvider if one is not already provided (ASP.NET overrides this)
         services.TryAddSingleton<IUserContextProvider, DefaultUserContextProvider>();
@@ -287,8 +285,6 @@ public static class ServiceCollectionExtensions
         // Register Dynamic UI services (Permission and Layout)
         RegisterDynamicUiServices(services, configuration);
 
-        // Register Visibility services
-        RegisterVisibilityServices(services, configuration);
     }
 
     /// <summary>
@@ -314,28 +310,9 @@ public static class ServiceCollectionExtensions
         // Register Permission Service
         services.AddScoped<IPermissionService, PermissionService>();
 
-        // Register Permission Guard for fluent permission checks
-        services.AddScoped<IPermissionGuard, PermissionGuard>();
 
         // Register Layout Descriptor Service
         services.AddScoped<ILayoutDescriptorService, LayoutDescriptorService>();
-    }
-
-    private static void RegisterVisibilityServices(IServiceCollection services, IConfiguration? configuration)
-    {
-        if (configuration != null)
-        {
-            services.Configure<VisibilityOptions>(
-                configuration.GetSection(VisibilityOptions.SectionName));
-        }
-        else
-        {
-             services.Configure<VisibilityOptions>(_ => { });
-        }
-
-        services.AddScoped<IVisibilityService, VisibilityService>();
-        services.AddScoped<IVisibilityRequirementHandler, Services.Authorization.Handlers.RoleHandler>();
-        services.AddScoped<IVisibilityRequirementHandler, Services.Authorization.Handlers.SalesforcePermissionHandler>();
     }
 
     /// <summary>

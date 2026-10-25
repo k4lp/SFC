@@ -307,60 +307,6 @@ public class SchemaService : ISchemaService
             .ToList();
     }
 
-    /// <inheritdoc/>
-    public async Task<List<string>> SanitizeFieldListWithFlsAsync(string sObject, IEnumerable<string> requestedFields, CancellationToken cancellationToken = default)
-    {
-        var accessibleFields = await GetAccessibleFieldsAsync(sObject, cancellationToken);
-        var accessibleFieldNames = accessibleFields.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var accessibleRelationshipNames = accessibleFields
-            .Where(f => !string.IsNullOrWhiteSpace(f.RelationshipName))
-            .GroupBy(f => f.RelationshipName!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        var validFields = new List<string>();
-        var requestedList = requestedFields.ToList();
-
-        foreach (var field in requestedList)
-        {
-            if (!SecurityUtils.IsValidFieldName(field))
-            {
-                _logger.LogWarning("Invalid field format rejected: {Field}", field);
-                continue;
-            }
-
-            // Handle relationship notation (e.g., Account.Name)
-            var baseName = field.Split('.')[0];
-
-            if (accessibleFieldNames.Contains(baseName) ||
-                accessibleRelationshipNames.ContainsKey(baseName))
-            {
-                validFields.Add(field);
-            }
-            else
-            {
-                _logger.LogDebug("Field {Field} on {SObject} is not accessible (FLS)", field, sObject);
-            }
-        }
-
-        // Ensure Id is always included
-        if (!validFields.Any(f => f.Equals("Id", StringComparison.OrdinalIgnoreCase)))
-        {
-            validFields.Insert(0, "Id");
-        }
-
-        // Handle Name field substitution with FLS check
-        if (requestedList.Any(f => f.Equals("Name", StringComparison.OrdinalIgnoreCase)) &&
-            !validFields.Any(f => f.Equals("Name", StringComparison.OrdinalIgnoreCase)))
-        {
-            var nameField = await GetNameFieldAsync(sObject, cancellationToken);
-            if (accessibleFieldNames.Contains(nameField) &&
-                !validFields.Any(f => f.Equals(nameField, StringComparison.OrdinalIgnoreCase)))
-            {
-                validFields.Add(nameField);
-            }
-        }
-
-        return validFields.Distinct().ToList();
-    }
 
     /// <inheritdoc/>
     public async Task<PicklistValuesResult> GetPicklistValuesAsync(string sObject, string fieldName, string? recordTypeId = null, CancellationToken cancellationToken = default)
