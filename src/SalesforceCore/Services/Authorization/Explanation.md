@@ -13,13 +13,6 @@ The `src/SalesforceCore/Services/Authorization` directory handles the logic for 
 - **Action Checks**: `CanPerformActionAsync` (e.g., can I delete this Account?).
 - **Field Access**: `CanAccessFieldAsync` (e.g., can I edit the 'Revenue' field?).
 
-### `IVisibilityService` & Handlers
-**Purpose**: Controls which UI elements (modules, menus, buttons) should be visible to the user.
-**Mechanism**:
-- Uses `IVisibilityRequirementHandler` implementations to evaluate rules.
-- **`RoleHandler`**: Checks if the user has a specific Salesforce Role.
-- **`SalesforcePermissionHandler`**: Checks for specific Permission Set assignments or Custom Permissions.
-
 ### `IUserContextProvider`
 **Purpose**: Abstraction for retrieving the current user's context (ID, Organization ID, Timezone).
 **Implementation**:
@@ -27,4 +20,3 @@ The `src/SalesforceCore/Services/Authorization` directory handles the logic for 
 - **ASP.NET Core**: In a web context, this is typically overridden to pull from `HttpContext.User`.
 
 ## 3. Relationship to Security
-While `FieldLevelSecurityService` (in `src/SalesforceCore/Security`) enforces rules at the data layer, `PermissionService` provides the high-level queries used by the UI to hide/disable buttons *before* the user even tries an action.

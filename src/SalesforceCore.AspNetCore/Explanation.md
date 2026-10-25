@@ -15,7 +15,7 @@ Unlike a console app that might use a hardcoded username/password (not recommend
 It exposes the `DynamicUiController`, which serves JSON descriptors for forms and navigation. This allows building Single Page Applications (SPAs) or dynamic Razor views that adapt automatically to Salesforce metadata changes.
 
 ### UI Tag Helpers
-It includes Tag Helpers (like `<input sf-field="Name" ... />`) that automatically apply Field Level Security (FLS) to HTML forms, setting fields to `readonly` or hidden based on the user's permissions.
+It includes Tag Helpers (like `<input sf-field="Name" ... />`) that render HTML form inputs from describe metadata.
 
 ## 3. Design Decisions
 - **Session Handling**: Salesforce tokens (Access + Refresh + ID Token) are large and often exceed the 4KB browser cookie limit. This library provides `DistributedCacheTicketStore` to store the actual tokens in Redis/SQL and only send a small Session ID cookie to the browser.

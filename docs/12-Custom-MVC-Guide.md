@@ -66,7 +66,6 @@ public class OpportunitiesController : Controller
 
 ## Validation
 - Use `[SalesforceValidate]` attribute to apply validation engine before actions.
-- Keep `EnforceFieldLevelSecurity` enabled to avoid leaking unauthorized fields.
 
 ## Layout & Assets
 - Embedded assets are served at `StaticFilesPath` (default: `/_salesforce`) by `app.UseSalesforceCore()` when `UseEmbeddedStaticFiles` is enabled.

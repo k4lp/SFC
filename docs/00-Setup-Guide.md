@@ -75,7 +75,7 @@ var builder = Host.CreateDefaultBuilder(args)
 - **Auth**: PKCE for web; JWT/Client Credentials for headless services. Verify refresh/revoke paths.
 - **Caching**: Redis-backed IDistributedCache; set `CacheProvider = Distributed` and `CacheKeyPrefix`.
 - **Timeouts/Resilience**: Tune `HttpTimeout`, `MaxRetries`, `RetryBaseDelay`, `TotalRequestTimeout`; ensure circuit breaker defaults fit your SLAs.
-- **Security**: `EnforceFieldLevelSecurity = true`; `ValidateSoqlInputs = true`; HTTPS + secure cookies.
+- **Security**: `ValidateSoqlInputs = true`; HTTPS + secure cookies.
 - **Files**: Validate `MaxFileUploadSize` and allowed extensions for your org’s limits.
 - **Observability**: Enable structured logging; consider enabling debug logging only in non-prod.
 - **NuGet feeds**: Ensure preview feeds are available to satisfy `10.0.0-*` dependencies.

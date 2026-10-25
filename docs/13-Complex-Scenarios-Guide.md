@@ -20,7 +20,7 @@ Patterns for more advanced SalesforceCore usage.
 - Store watermarks per object; handle overlapping windows to avoid gaps.
 
 ## Validation Pipelines
-- Keep `EnforceFieldLevelSecurity` and `ValidateSoqlInputs` enabled.
+- Keep `ValidateSoqlInputs` enabled.
 - Use `[SalesforceValidate]` on controllers to run validation engine before save.
 
 ## Performance

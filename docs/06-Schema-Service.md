@@ -23,44 +23,8 @@ var sanitized = await schemaService.SanitizeFieldListAsync("Lead", requestedFiel
 - **Sanitize Fields**: Validate/trim requested fields against schema (prevents invalid SOQL).
 - **Polymorphic IDs**: `IDataService.ResolvePolymorphicTypeAsync` and `IDataService.BatchResolvePolymorphicTypesAsync`.
 
-## Field-Level Security (FLS) Methods
-
-> [!IMPORTANT]
-> When `EnforceFieldLevelSecurity` is enabled (default: `true`), use these FLS-aware methods instead of the standard field list methods.
-
-### GetAccessibleFieldsAsync
-
-Returns only fields the current user has **read access** to:
-
-```csharp
-// Get FLS-enforced readable fields
-var accessibleFields = await schemaService.GetAccessibleFieldsAsync("Account");
-
-// Use instead of GetQueryableFieldsAsync when FLS is enabled
-var queryableFields = _options.EnforceFieldLevelSecurity
-    ? await schemaService.GetAccessibleFieldsAsync(sObject)
-    : await schemaService.GetQueryableFieldsAsync(sObject);
-```
-
-### SanitizeFieldListWithFlsAsync
-
-Sanitizes a field list ensuring only **accessible** fields are included:
-
-```csharp
-// More restrictive than SanitizeFieldListAsync - also checks read access
-var safeFields = await schemaService.SanitizeFieldListWithFlsAsync("Contact", requestedFields);
-
-// Use in controllers/services
-var validFields = _options.EnforceFieldLevelSecurity
-    ? await schemaService.SanitizeFieldListWithFlsAsync(sObject, requestedFields)
-    : await schemaService.SanitizeFieldListAsync(sObject, requestedFields);
-```
-
-> [!TIP]
-> When writing unit tests, mock both `SanitizeFieldListAsync` **and** `SanitizeFieldListWithFlsAsync` to avoid `ArgumentNullException` when FLS is enabled.
-
 ## Usage Patterns
-- **Dynamic Forms**: Use createable/updateable lists to render inputs; respect `EnforceFieldLevelSecurity`.
+- **Dynamic Forms**: Use createable/updateable lists to render inputs; Salesforce rejects writes the user is not allowed to make.
 - **List Views**: Sanitize user-selected fields via `SanitizeFieldListAsync` or `SanitizeFieldListWithFlsAsync`.
 - **Lookup Resolution**: Combine `GetNameFieldAsync` with `IDataService.BatchResolveLookupAsync`.
 

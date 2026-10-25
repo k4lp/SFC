@@ -323,7 +323,6 @@ Note: `ClientSecret` is only required for Client Credentials flow. PKCE does not
     "MaxPageSize": 100,
 
     // === Security ===
-    "EnforceFieldLevelSecurity": true,
     "ValidateSoqlInputs": true,
     "MaxFileUploadSize": 26214400,
 

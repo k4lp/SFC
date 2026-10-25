@@ -15,4 +15,3 @@ The `src/SalesforceCore/Services/Metadata` directory contains `ISchemaService` a
 
 ## 3. Design Decisions
 - **Cache Invalidation**: Includes `InvalidateCacheAsync` to allow the application to refresh metadata without restarting if an Admin adds a field in Salesforce.
-- **FLS Enforcement**: Provides `SanitizeFieldListWithFlsAsync` to ensure queries never request forbidden fields, preventing API errors.
