@@ -37,7 +37,27 @@ public class AspNetCoreTokenProvider : ITokenProvider
     /// This ensures that when multiple requests hit 401 simultaneously,
     /// only one refresh operation occurs rather than multiple parallel refreshes.
     /// </summary>
-    private static readonly SemaphoreSlim _refreshLock = new(1, 1);
+    /// <remarks>
+    /// SFC-06: striped per session instead of one process-wide lock, so a slow refresh for one user
+    /// no longer blocks token refresh for every other user of the application.
+    /// </remarks>
+    private static readonly SemaphoreSlim[] _refreshLocks = CreateRefreshLocks(64);
+
+    private static SemaphoreSlim[] CreateRefreshLocks(int count)
+    {
+        var locks = new SemaphoreSlim[count];
+        for (var i = 0; i < count; i++)
+        {
+            locks[i] = new SemaphoreSlim(1, 1);
+        }
+        return locks;
+    }
+
+    internal static SemaphoreSlim GetRefreshLock(string? sessionKey)
+    {
+        var hash = StringComparer.Ordinal.GetHashCode(sessionKey ?? string.Empty) & int.MaxValue;
+        return _refreshLocks[hash % _refreshLocks.Length];
+    }
 
     /// <summary>
     /// Creates a new AspNetCoreTokenProvider.
@@ -145,9 +165,13 @@ public class AspNetCoreTokenProvider : ITokenProvider
             {
                 // Call Salesforce revoke endpoint using IHttpClientFactory for proper socket management
                 var httpClient = _httpClientFactory.CreateClient("SalesforceTokenRevoke");
-                var content = new FormUrlEncodedContent(new[]
+                // SFC-05: revoke the refresh token when we have one. Per RFC 7009 / Salesforce docs, revoking a
+                // refresh token also invalidates the access tokens issued from it; revoking only the access
+                // token left the long-lived refresh token usable after logout.
+                var refreshToken = await HttpContext.GetTokenAsync("refresh_token");
+                using var content = new FormUrlEncodedContent(new[]
                 {
-                    new KeyValuePair<string, string>("token", accessToken)
+                    new KeyValuePair<string, string>("token", string.IsNullOrEmpty(refreshToken) ? accessToken : refreshToken)
                 });
 
                 if (!_options.ValidateInstanceUrl || SalesforceCore.Security.SalesforceUrlValidator.IsAllowed(instanceUrl, _options.AdditionalAllowedHosts))
@@ -180,7 +204,9 @@ public class AspNetCoreTokenProvider : ITokenProvider
 
         // Use semaphore to prevent concurrent refresh operations
         // This prevents multiple parallel 401 responses from triggering multiple refresh attempts
-        var lockAcquired = await _refreshLock.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        var preLockAuth = await HttpContext.AuthenticateAsync();
+        var refreshLock = GetRefreshLock(GetRefreshSessionKey(preLockAuth) ?? GetFallbackRefreshSessionKey());
+        var lockAcquired = await refreshLock.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
         if (!lockAcquired)
         {
             _logger.LogWarning("Could not acquire refresh lock within timeout - another refresh may be in progress");
@@ -260,7 +286,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
             {
                 form["client_secret"] = _options.ClientSecret;
             }
-            var requestContent = new FormUrlEncodedContent(form);
+            using var requestContent = new FormUrlEncodedContent(form);
 
             using var response = await httpClient.PostAsync(tokenEndpoint, requestContent, cancellationToken);
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -351,7 +377,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
         }
         finally
         {
-            _refreshLock.Release();
+            refreshLock.Release();
         }
     }
 

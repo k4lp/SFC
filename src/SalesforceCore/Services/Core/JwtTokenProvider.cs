@@ -108,7 +108,7 @@ public class JwtTokenProvider : ITokenProvider
         try
         {
             var httpClient = _httpClientFactory.CreateClient("SalesforceJwt");
-            var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["token"] = token.AccessToken
             });
@@ -155,7 +155,7 @@ public class JwtTokenProvider : ITokenProvider
         var httpClient = _httpClientFactory.CreateClient("SalesforceJwt");
         var tokenEndpoint = $"{_salesforceOptions.Domain.TrimEnd('/')}{SalesforceConstants.Paths.OAuthToken}";
 
-        var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = SalesforceConstants.GrantTypes.JwtBearer,
             ["assertion"] = assertion
@@ -223,11 +223,11 @@ public class JwtTokenProvider : ITokenProvider
         var now = DateTime.UtcNow;
         var tokenHandler = new JwtSecurityTokenHandler();
 
+        // SFC-15: iss and aud are supplied once via the JwtSecurityToken constructor; adding them to the claim
+        // list as well produced duplicate claims (aud serialised as an array) in the assertion.
         var claims = new List<Claim>
         {
-            new Claim("iss", _salesforceOptions.ClientId),
-            new Claim("sub", _jwtOptions.Username),
-            new Claim("aud", _jwtOptions.Audience ?? _salesforceOptions.Domain)
+            new Claim("sub", _jwtOptions.Username)
         };
 
         using var privateKey = GetPrivateKey();

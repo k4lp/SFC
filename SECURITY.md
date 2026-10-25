@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.2.x   | ✅ security fixes |
+| 1.3.x   | ✅ security fixes |
+| 1.2.x   | ⚠️ upgrade to 1.3.0 — stored XSS via file preview, plaintext tokens in DistributedCacheTokenProvider, session-fixation token cache key (see docs/security/SFC_Security_Scan_Report.md) |
 | 1.1.x   | ⚠️ upgrade to 1.2.0 — contains a SOQL escaping injection bug and no instance_url validation |
 | < 1.1   | ❌ |
 

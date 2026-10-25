@@ -274,9 +274,12 @@ public class SalesforceLookupTagHelper : TagHelper
         List<string> targetObjects,
         bool isPolymorphic)
     {
-        var targetObjectsJson = string.Join(",", targetObjects);
+        // SFC-17: encode every attribute value (developer- or metadata-supplied) for defence in depth.
+        fieldName = System.Web.HttpUtility.HtmlAttributeEncode(fieldName);
+        inputId = System.Web.HttpUtility.HtmlAttributeEncode(inputId);
+        var targetObjectsJson = System.Web.HttpUtility.HtmlAttributeEncode(string.Join(",", targetObjects));
         var searchFieldsAttr = !string.IsNullOrEmpty(SearchFields)
-            ? $" data-sf-search-fields=\"{SearchFields}\""
+            ? $" data-sf-search-fields=\"{System.Web.HttpUtility.HtmlAttributeEncode(SearchFields)}\""
             : "";
         var displayTemplateAttr = !string.IsNullOrEmpty(DisplayTemplate)
             ? $" data-sf-display-template=\"{System.Web.HttpUtility.HtmlAttributeEncode(DisplayTemplate)}\""

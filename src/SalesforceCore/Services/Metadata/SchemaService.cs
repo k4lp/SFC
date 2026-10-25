@@ -22,6 +22,8 @@ public class SchemaService : ISchemaService
     private readonly SalesforceOptions _options;
     private readonly ILogger<SchemaService> _logger;
 
+    private readonly SalesforceCore.Services.Authorization.IUserContextProvider? _userContextProvider;
+
     private const string SchemaCachePrefix = "Schema_";
     private const string GlobalDescribeCacheKey = "GlobalDescribe";
     private const string PicklistCachePrefix = "Picklist_";
@@ -33,8 +35,10 @@ public class SchemaService : ISchemaService
         ISalesforceClient client,
         ICacheProvider cache,
         IOptions<SalesforceOptions> options,
-        ILogger<SchemaService> logger)
+        ILogger<SchemaService> logger,
+        SalesforceCore.Services.Authorization.IUserContextProvider? userContextProvider = null)
     {
+        _userContextProvider = userContextProvider;
         _client = client;
         _cache = cache;
         _options = options.Value;
@@ -57,7 +61,7 @@ public class SchemaService : ISchemaService
             return null;
         }
 
-        var cacheKey = $"{SchemaCachePrefix}{sObject}";
+        var cacheKey = $"{SchemaCachePrefix}{sObject}{UserPartition()}";
 
         return await _cache.GetOrCreateAsync(
             cacheKey,
@@ -223,7 +227,7 @@ public class SchemaService : ISchemaService
     public async Task<List<SObjectInfo>> GetAllObjectsAsync(CancellationToken cancellationToken = default)
     {
         var result = await _cache.GetOrCreateAsync(
-            GlobalDescribeCacheKey,
+            GlobalDescribeCacheKey + UserPartition(),
             async ct =>
             {
                 try
@@ -248,14 +252,41 @@ public class SchemaService : ISchemaService
     {
         if (string.IsNullOrWhiteSpace(sObject))
         {
-            await _cache.RemoveAsync(GlobalDescribeCacheKey);
+            await _cache.RemoveAsync(GlobalDescribeCacheKey + UserPartition());
             _logger.LogInformation("Schema cache invalidated for global describe");
         }
         else
         {
-            await _cache.RemoveAsync($"{SchemaCachePrefix}{sObject}");
+            await _cache.RemoveAsync($"{SchemaCachePrefix}{sObject}{UserPartition()}");
             _logger.LogInformation("Schema cache invalidated for {SObject}", sObject);
         }
+    }
+
+    /// <summary>
+    /// SFC-07: describe results are evaluated for the calling user (accessible/createable/updateable flags reflect
+    /// that user's FLS and object permissions), so in user-context auth they must not be shared between users.
+    /// Returns an empty suffix when partitioning is disabled or there is no authenticated user (server-to-server auth).
+    /// </summary>
+    internal string UserPartition()
+    {
+        if (!_options.PartitionSchemaCacheByUser || _userContextProvider == null)
+        {
+            return string.Empty;
+        }
+
+        var user = _userContextProvider.GetUser();
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return string.Empty;
+        }
+
+        var id = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? user.FindFirst("sub")?.Value;
+        if (string.IsNullOrEmpty(id))
+        {
+            return string.Empty;
+        }
+
+        return "_u" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id)), 0, 8);
     }
 
     private static bool IsExcludedFieldType(string type)

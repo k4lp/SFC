@@ -162,7 +162,7 @@ public class EncryptedSqlServerCache : IDistributedCache
             }
 
             // Decrypt the value
-            var decryptedValue = Decrypt(entry.EncryptedValue);
+            var decryptedValue = Decrypt(entry.EncryptedValue, fullKey);
 
             // Write-behind access tracking + (optional) sliding expiration refresh.
             await TrackAccessAsync(context, entry, now, token);
@@ -204,7 +204,7 @@ public class EncryptedSqlServerCache : IDistributedCache
             var (expiresAt, slidingSeconds, absoluteExpiration) = CalculateExpiration(options, now);
 
             // Encrypt the value
-            var encryptedValue = Encrypt(value);
+            var encryptedValue = Encrypt(value, fullKey);
             await UpsertAsync(
                 context,
                 fullKey,
@@ -336,14 +336,18 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// </summary>
     /// <param name="plaintext">The data to encrypt.</param>
     /// <returns>Encrypted data: [12-byte nonce][ciphertext][16-byte tag]</returns>
-    private byte[] Encrypt(byte[] plaintext)
+    /// <param name="cacheKey">Full cache key, bound as AES-GCM associated data.</param>
+    private byte[] Encrypt(byte[] plaintext, string cacheKey)
     {
+        // SFC-16: bind the ciphertext to its cache key (AES-GCM associated data) so a row cannot be
+        // copied onto another key (e.g. one user's token entry onto another user's key) by someone with DB write access.
+        var aad = Encoding.UTF8.GetBytes(cacheKey);
         var nonce = RandomNumberGenerator.GetBytes(NonceSize);
         var ciphertext = new byte[plaintext.Length];
         var tag = new byte[TagSize];
 
         using var aes = new AesGcm(_encryptionKey, TagSize);
-        aes.Encrypt(nonce, plaintext, ciphertext, tag);
+        aes.Encrypt(nonce, plaintext, ciphertext, tag, aad);
 
         // Combine: nonce + ciphertext + tag
         var result = new byte[NonceSize + ciphertext.Length + TagSize];
@@ -359,8 +363,10 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// </summary>
     /// <param name="encryptedData">Encrypted data: [12-byte nonce][ciphertext][16-byte tag]</param>
     /// <returns>Decrypted plaintext.</returns>
-    private byte[] Decrypt(byte[] encryptedData)
+    /// <param name="cacheKey">Full cache key, bound as AES-GCM associated data.</param>
+    private byte[] Decrypt(byte[] encryptedData, string cacheKey)
     {
+        var aad = Encoding.UTF8.GetBytes(cacheKey);
         if (encryptedData.Length < NonceSize + TagSize)
         {
             throw new CryptographicException("Encrypted data is too short to be valid.");
@@ -378,7 +384,7 @@ public class EncryptedSqlServerCache : IDistributedCache
         var plaintext = new byte[ciphertextLength];
 
         using var aes = new AesGcm(_encryptionKey, TagSize);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext);
+        aes.Decrypt(nonce, ciphertext, tag, plaintext, aad);
 
         return plaintext;
     }

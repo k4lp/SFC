@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
@@ -55,7 +56,8 @@ public class DistributedCacheTokenProvider : ITokenProvider
         ILogger<DistributedCacheTokenProvider> logger,
         ISynchronizationService synchronizationService,
         IDistributedLockProvider? distributedLockProvider = null,
-        DistributedCacheTokenProviderOptions? options = null)
+        DistributedCacheTokenProviderOptions? options = null,
+        IDataProtectionProvider? dataProtectionProvider = null)
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
@@ -65,29 +67,79 @@ public class DistributedCacheTokenProvider : ITokenProvider
         _synchronizationService = synchronizationService ?? throw new ArgumentNullException(nameof(synchronizationService));
         _distributedLockProvider = distributedLockProvider;
         _options = options ?? new DistributedCacheTokenProviderOptions();
+        _protector = dataProtectionProvider?.CreateProtector("SalesforceCore.DistributedCacheTokenProvider.Tokens.v1");
     }
+
+    private readonly IDataProtector? _protector;
 
     private string GetCacheKey()
     {
-        // Use session ID or a custom user identifier as the cache key
-        var sessionId = _httpContextAccessor.HttpContext?.Session?.Id;
-        if (string.IsNullOrEmpty(sessionId))
+        var user = _httpContextAccessor.HttpContext?.User;
+        // Prefer NameIdentifier/sub over Name: display names are not guaranteed unique and
+        // a collision would hand one user's Salesforce tokens to another.
+        var userId = user?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                     ?? user?.FindFirst("sub")?.Value
+                     ?? (_options.AllowUserNameAsCacheKey ? user?.Identity?.Name : null);
+
+        // Session IDs are not rotated on sign-in in ASP.NET Core, so keying tokens on the session ID
+        // alone allowed session fixation (SFC-04): an attacker who planted a session cookie could read
+        // the victim's tokens. The key now always includes the authenticated user identity.
+        string? sessionId = null;
+        try
         {
-            // Fallback to a stable, unique user identifier if session is not available.
-            // Prefer NameIdentifier/sub over Name: display names are not guaranteed unique and
-            // a collision would hand one user's Salesforce tokens to another.
-            var user = _httpContextAccessor.HttpContext?.User;
-            var userId = user?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                         ?? user?.FindFirst("sub")?.Value
-                         ?? (_options.AllowUserNameAsCacheKey ? user?.Identity?.Name : null);
-            if (string.IsNullOrEmpty(userId))
-            {
-                throw new InvalidOperationException(
-                    "Unable to determine cache key. Ensure session or user authentication is configured.");
-            }
-            return $"{CacheKeyPrefix}{userId}";
+            sessionId = _httpContextAccessor.HttpContext?.Session?.Id;
         }
-        return $"{CacheKeyPrefix}{sessionId}";
+        catch (InvalidOperationException)
+        {
+            // Session middleware not configured.
+        }
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            if (!string.IsNullOrEmpty(sessionId) && _options.AllowAnonymousSessionCacheKey)
+            {
+                return $"{CacheKeyPrefix}{sessionId}";
+            }
+
+            throw new InvalidOperationException(
+                "Unable to determine cache key. Ensure the user is authenticated (NameIdentifier or sub claim).");
+        }
+
+        var userPart = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(userId)));
+        return string.IsNullOrEmpty(sessionId)
+            ? $"{CacheKeyPrefix}u:{userPart}"
+            : $"{CacheKeyPrefix}u:{userPart}:s:{sessionId}";
+    }
+
+    internal string GetCacheKeyForTesting() => GetCacheKey();
+
+    private string Protect(string json)
+    {
+        if (_protector != null)
+        {
+            return "dp1:" + _protector.Protect(json);
+        }
+
+        if (!_options.AllowUnprotectedTokenStorage)
+        {
+            throw new InvalidOperationException(
+                "Refusing to store Salesforce tokens unencrypted in the distributed cache. Register ASP.NET Core Data Protection " +
+                "(services.AddDataProtection(), with persisted keys for multi-server deployments) or, for development only, " +
+                "set DistributedCacheTokenProviderOptions.AllowUnprotectedTokenStorage = true.");
+        }
+
+        return json;
+    }
+
+    private string? Unprotect(string stored)
+    {
+        if (stored.StartsWith("dp1:", StringComparison.Ordinal))
+        {
+            return _protector?.Unprotect(stored.Substring(4));
+        }
+
+        // Legacy/plaintext entry: only accepted when unprotected storage is explicitly allowed.
+        return _options.AllowUnprotectedTokenStorage ? stored : null;
     }
 
     /// <inheritdoc/>
@@ -157,7 +209,7 @@ public class DistributedCacheTokenProvider : ITokenProvider
         try
         {
             var key = GetCacheKey();
-            await _cache.SetStringAsync(key, json, cacheOptions, cancellationToken);
+            await _cache.SetStringAsync(key, Protect(json), cacheOptions, cancellationToken);
             _logger.LogDebug("Stored tokens in distributed cache with key {CacheKey}", key);
         }
         catch (Exception ex)
@@ -359,7 +411,11 @@ public class DistributedCacheTokenProvider : ITokenProvider
         try
         {
             var key = GetCacheKey();
-            var json = await _cache.GetStringAsync(key, cancellationToken);
+            var stored = await _cache.GetStringAsync(key, cancellationToken);
+            if (string.IsNullOrEmpty(stored))
+                return null;
+
+            var json = Unprotect(stored);
             if (string.IsNullOrEmpty(json))
                 return null;
 
@@ -396,4 +452,16 @@ public class DistributedCacheTokenProviderOptions
     /// Default false: names are not guaranteed unique, so only NameIdentifier/<c>sub</c> claims are used.
     /// </summary>
     public bool AllowUserNameAsCacheKey { get; set; } = false;
+
+    /// <summary>
+    /// SFC-03: allow tokens to be written to the distributed cache without Data Protection encryption.
+    /// Default false. Only enable for local development with an in-memory cache.
+    /// </summary>
+    public bool AllowUnprotectedTokenStorage { get; set; } = false;
+
+    /// <summary>
+    /// SFC-04: allow keying tokens on the ASP.NET Core session ID alone when there is no authenticated user.
+    /// Default false because session IDs are not rotated on sign-in (session fixation risk).
+    /// </summary>
+    public bool AllowAnonymousSessionCacheKey { get; set; } = false;
 }

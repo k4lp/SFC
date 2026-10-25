@@ -15,6 +15,8 @@ namespace SalesforceCore.AspNetCore.Controllers;
 [Route("[controller]")]
 public class LookupController : Controller
 {
+    internal const int MaxLookupLimit = 200;
+
     private readonly ILookupService _lookupService;
     private readonly IConfigurationService _configService;
     private readonly ILogger<LookupController> _logger;
@@ -51,6 +53,9 @@ public class LookupController : Controller
         int limit = 15)
     {
         LookupSearchResult result;
+
+        // SFC-12: bound the result size requested by the client (1..200, the SOQL-friendly maximum used elsewhere).
+        limit = Math.Clamp(limit, 1, MaxLookupLimit);
 
         // Handle polymorphic lookups
         if (!string.IsNullOrWhiteSpace(polymorphicTargets))
@@ -104,7 +109,7 @@ public class LookupController : Controller
     [HttpGet("Recent")]
     public async Task<IActionResult> Recent(string targetObject, int limit = 5)
     {
-        var items = await _lookupService.GetRecentItemsAsync(targetObject, limit);
+        var items = await _lookupService.GetRecentItemsAsync(targetObject, Math.Clamp(limit, 1, MaxLookupLimit));
 
         var result = new LookupSearchResult
         {

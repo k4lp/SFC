@@ -9,7 +9,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore.AspNetCore</PackageId>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore.AspNetCore</Product>
@@ -35,6 +35,10 @@
     <AssemblyName>SalesforceCore.AspNetCore</AssemblyName>
     <RootNamespace>SalesforceCore.AspNetCore</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SalesforceCore.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

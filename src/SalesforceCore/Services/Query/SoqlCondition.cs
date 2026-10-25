@@ -76,6 +76,19 @@ public abstract class SoqlCondition
         => new LikeCondition(field, pattern);
 
     /// <summary>
+    /// Creates a LIKE condition that matches records whose field contains <paramref name="value"/> literally.
+    /// LIKE wildcards (<c>%</c>, <c>_</c>) in the value are escaped, so untrusted input cannot widen the match.
+    /// </summary>
+    public static SoqlCondition Contains(string field, string value)
+        => new LiteralLikeCondition(field, value, "%", "%");
+
+    /// <summary>
+    /// Creates a LIKE condition that matches records whose field starts with <paramref name="value"/> literally.
+    /// </summary>
+    public static SoqlCondition StartsWith(string field, string value)
+        => new LiteralLikeCondition(field, value, string.Empty, "%");
+
+    /// <summary>
     /// Creates an IN condition: field IN (values)
     /// </summary>
     public static SoqlCondition In(string field, IEnumerable<object?> values)
@@ -299,6 +312,20 @@ internal sealed class LikeCondition : SoqlCondition
     {
         return $"{_field} LIKE '{_pattern}'";
     }
+}
+
+internal sealed class LiteralLikeCondition : SoqlCondition
+{
+    private readonly string _field;
+    private readonly string _pattern;
+
+    public LiteralLikeCondition(string field, string value, string prefix, string suffix)
+    {
+        _field = SecurityUtils.SanitizeFieldName(field);
+        _pattern = prefix + SecurityUtils.SanitizeSoqlLike(value) + suffix;
+    }
+
+    internal override string Render() => $"{_field} LIKE '{_pattern}'";
 }
 
 internal sealed class InCondition : SoqlCondition

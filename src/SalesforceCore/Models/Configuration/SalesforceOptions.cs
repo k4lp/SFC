@@ -323,6 +323,14 @@ public class SalesforceOptions
     public bool ValidateInstanceUrl { get; set; } = true;
 
     /// <summary>
+    /// SFC-07: when true (default) and an authenticated user is available via <c>IUserContextProvider</c>,
+    /// object describe results are cached per user, because Salesforce evaluates describe flags
+    /// (accessible/createable/updateable) for the calling user. Set to false only when every request uses
+    /// the same integration user (server-to-server auth) and you want one shared cache.
+    /// </summary>
+    public bool PartitionSchemaCacheByUser { get; set; } = true;
+
+    /// <summary>
     /// Extra hosts trusted in addition to Salesforce domains (exact host, or a suffix beginning with '.').
     /// Use for corporate egress proxies or custom domains that do not end in a Salesforce suffix.
     /// </summary>

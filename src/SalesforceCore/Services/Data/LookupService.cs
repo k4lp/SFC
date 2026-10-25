@@ -87,7 +87,7 @@ public class LookupService : ILookupService
             var queryBuilder = SoqlBuilder.From(options.TargetObject)
                 .Select(validFields)
                 .OrderBy(nameField)
-                .Limit(options.Limit);
+                .Limit(Math.Clamp(options.Limit, 1, 200)); // SFC-12
 
             // Multi-field search conditions
             if (searchFields.Any() && !string.IsNullOrEmpty(options.Query))

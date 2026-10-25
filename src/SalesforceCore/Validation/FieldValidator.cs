@@ -14,21 +14,39 @@ public class FieldValidator : IFieldValidator
     private readonly ISchemaService _schemaService;
 
     // Pre-compiled regex patterns for common validations
+    /// <summary>SFC-25: hard upper bound on any validation regex evaluation.</summary>
+    internal static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
+
     private static readonly Regex EmailRegex = new(
         @"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
     private static readonly Regex UrlRegex = new(
-        @"^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        @"^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)\/?$", // SFC-25: removed nested quantifier (ReDoS)
+        RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
     private static readonly Regex PhoneRegex = new(
         @"^[\d\s\+\-\(\)\.ext]+$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
     private static readonly Regex SalesforceIdRegex = new(
         @"^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, RegexTimeout);
+
+    /// <summary>SFC-25: a regex timeout is treated as "no match" instead of surfacing as an exception.</summary>
+    internal static bool SafeIsMatch(Regex regex, string value)
+    {
+        try
+        {
+            return regex.IsMatch(value);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsValidUrlFormat(string value) => SafeIsMatch(UrlRegex, value);
 
     public FieldValidator(ISchemaService schemaService)
     {
@@ -287,7 +305,7 @@ public class FieldValidator : IFieldValidator
 
     private ValidationError? ValidateEmail(SObjectField field, string value)
     {
-        if (!EmailRegex.IsMatch(value))
+        if (!SafeIsMatch(EmailRegex, value))
         {
             return new ValidationError(
                 field.Name,
@@ -300,7 +318,7 @@ public class FieldValidator : IFieldValidator
 
     private ValidationError? ValidateUrl(SObjectField field, string value)
     {
-        if (!UrlRegex.IsMatch(value) && !Uri.TryCreate(value, UriKind.Absolute, out _))
+        if (!SafeIsMatch(UrlRegex, value) && !Uri.TryCreate(value, UriKind.Absolute, out _))
         {
             return new ValidationError(
                 field.Name,
@@ -313,7 +331,7 @@ public class FieldValidator : IFieldValidator
 
     private ValidationError? ValidatePhone(SObjectField field, string value)
     {
-        if (!PhoneRegex.IsMatch(value))
+        if (!SafeIsMatch(PhoneRegex, value))
         {
             return new ValidationError(
                 field.Name,
@@ -339,7 +357,7 @@ public class FieldValidator : IFieldValidator
 
     private ValidationError? ValidateId(SObjectField field, string value)
     {
-        if (!SalesforceIdRegex.IsMatch(value))
+        if (!SafeIsMatch(SalesforceIdRegex, value))
         {
             return new ValidationError(
                 field.Name,
