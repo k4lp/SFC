@@ -173,12 +173,24 @@ public class DataServiceHttpPipelineTests
     }
 
     [Fact]
-    public async Task Create_DropsFieldsNotCreateable_BeforeSending()
+    public async Task Create_SendsPayloadUnchanged_SalesforceDecidesWhatIsWriteable()
     {
         _http.Enqueue(HttpStatusCode.Created, """{"id":"001NEW","success":true,"errors":[]}""");
         await Service().CreateRecordAsync("Account", new Dictionary<string, object?> { ["Name"] = "Acme", ["SystemModstamp"] = "x" });
+        _http.Requests.Should().ContainSingle("no describe call is made on write in 2.0");
         var body = JsonNode.Parse(_http.Requests.Single().Body!)!.AsObject();
         body.ContainsKey("Name").Should().BeTrue();
-        body.ContainsKey("SystemModstamp").Should().BeFalse();
+        body.ContainsKey("SystemModstamp").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Create_SalesforceFlsRejection_SurfacesAsTypedException()
+    {
+        _http.Enqueue(HttpStatusCode.BadRequest, """[{"message":"Unable to create/update fields: SystemModstamp.","errorCode":"INVALID_FIELD_FOR_INSERT_UPDATE","fields":["SystemModstamp"]}]""");
+        var act = () => Service().CreateRecordAsync("Account", new Dictionary<string, object?> { ["SystemModstamp"] = "x" });
+        var ex = await act.Should().ThrowAsync<SalesforceCore.Models.Errors.SalesforceFieldSecurityException>();
+        ex.Which.ErrorCode.Should().Be("INVALID_FIELD_FOR_INSERT_UPDATE");
+        ex.Which.FieldName.Should().Be("SystemModstamp");
+        ex.Which.HttpStatusCode.Should().Be(400);
     }
 }

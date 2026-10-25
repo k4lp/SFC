@@ -86,7 +86,8 @@ public class SalesforceException : Exception
         if (errors is { Count: > 0 })
         {
             _errors = errors;
-            ErrorCode ??= errors[0].ErrorCode;
+            // The actual Salesforce code always wins over a subtype's generic default (e.g. VALIDATION_ERROR).
+            if (!string.IsNullOrEmpty(errors[0].ErrorCode)) ErrorCode = errors[0].ErrorCode;
             var fields = errors.SelectMany(e => e.Fields ?? Enumerable.Empty<string>()).Distinct().ToList();
             if (fields.Count > 0) Fields = fields;
         }

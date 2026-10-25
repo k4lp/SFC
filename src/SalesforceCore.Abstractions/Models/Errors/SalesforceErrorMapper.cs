@@ -177,7 +177,7 @@ public static class SalesforceErrorMapper
     {
         400 => "Invalid request",
         401 => "Session has expired or is invalid",
-        403 => "Access denied by Salesforce",
+        403 => "Access denied",
         404 => "Resource not found",
         429 => "Salesforce request limit exceeded",
         >= 500 => "Salesforce server error",

@@ -18,7 +18,6 @@ public class LayoutDescriptorServiceTests
 {
     private readonly Mock<ISchemaService> _schemaServiceMock;
     private readonly Mock<IPermissionService> _permissionServiceMock;
-    private readonly Mock<IVisibilityService> _visibilityServiceMock;
     private readonly Mock<IUserContextProvider> _userProviderMock;
     private readonly Mock<ICacheProvider> _cacheProviderMock;
     private readonly Mock<IDynamicUiConfigProvider> _configProviderMock;
@@ -30,7 +29,6 @@ public class LayoutDescriptorServiceTests
     {
         _schemaServiceMock = new Mock<ISchemaService>();
         _permissionServiceMock = new Mock<IPermissionService>();
-        _visibilityServiceMock = new Mock<IVisibilityService>();
         _userProviderMock = new Mock<IUserContextProvider>();
         _cacheProviderMock = new Mock<ICacheProvider>();
         _configProviderMock = new Mock<IDynamicUiConfigProvider>();
@@ -48,7 +46,6 @@ public class LayoutDescriptorServiceTests
         _service = new LayoutDescriptorService(
             _schemaServiceMock.Object,
             _permissionServiceMock.Object,
-            _visibilityServiceMock.Object,
             _userProviderMock.Object,
             _cacheProviderMock.Object,
             Options.Create(_options),
