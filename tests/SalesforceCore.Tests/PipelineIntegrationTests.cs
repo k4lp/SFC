@@ -34,7 +34,6 @@ public class PipelineIntegrationTests
 {
     // Real Services
     private readonly DataService _dataService;
-    private readonly FieldLevelSecurityService _flsService;
     private readonly ConfigurationService _configService;
     private readonly MemoryCacheProvider _cacheProvider;
 
@@ -42,7 +41,6 @@ public class PipelineIntegrationTests
     private readonly Mock<ISalesforceClient> _mockClient;
     private readonly Mock<ISchemaService> _mockSchema;
     private readonly Mock<IBulkService> _mockBulk;
-    private readonly Mock<IVisibilityService> _mockVisibility;
     
     // Config
     private readonly IOptions<SalesforceOptions> _options;
@@ -53,7 +51,6 @@ public class PipelineIntegrationTests
         _mockClient = new Mock<ISalesforceClient>();
         _mockSchema = new Mock<ISchemaService>();
         _mockBulk = new Mock<IBulkService>();
-        _mockVisibility = new Mock<IVisibilityService>();
 
         _options = Options.Create(new SalesforceOptions { ApiVersion = "v62.0" });
         _mvcOptions = Options.Create(new SalesforceMvcOptions());
@@ -80,7 +77,6 @@ public class PipelineIntegrationTests
             _options,
             NullLogger<DataService>.Instance);
 
-        _flsService = new FieldLevelSecurityService(_mockSchema.Object);
     }
 
     private void SetupSchemaDefaults()
@@ -94,8 +90,6 @@ public class PipelineIntegrationTests
         // Default: Allow all fields through sanitization
         _mockSchema.Setup(s => s.SanitizeFieldListAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string obj, IEnumerable<string> fields, CancellationToken ct) => fields?.ToList() ?? new List<string>());
-        _mockSchema.Setup(s => s.SanitizeFieldListWithFlsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string obj, IEnumerable<string> fields, CancellationToken ct) => fields?.ToList() ?? new List<string>());
     }
 
     private SalesforceController CreateController()
@@ -104,7 +98,6 @@ public class PipelineIntegrationTests
             _mockSchema.Object,
             _dataService,
             _configService,
-            _mockVisibility.Object,
             _options,
             _mvcOptions,
             NullLogger<SalesforceController>.Instance
@@ -150,9 +143,6 @@ public class PipelineIntegrationTests
         
         _mockSchema.Setup(s => s.GetCreateableFieldsAsync(sObject, It.IsAny<CancellationToken>()))
             .ReturnsAsync(fields.Where(f => f.Createable).ToList());
-
-        _mockVisibility.Setup(v => v.EvaluatePolicyAsync(It.IsAny<string>()))
-            .ReturnsAsync(true);
 
         // API Mock
         _mockClient.Setup(c => c.PostAsync<CreateResult>(

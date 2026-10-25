@@ -24,7 +24,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
 {
     private readonly ISchemaService _schemaService;
     private readonly IPermissionService _permissionService;
-    private readonly IVisibilityService _visibilityService;
     private readonly IUserContextProvider _userProvider;
     private readonly ICacheProvider _cacheProvider;
     private readonly IDynamicUiConfigProvider? _configProvider;
@@ -38,7 +37,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
     public LayoutDescriptorService(
         ISchemaService schemaService,
         IPermissionService permissionService,
-        IVisibilityService visibilityService,
         IUserContextProvider userProvider,
         ICacheProvider cacheProvider,
         IOptions<DynamicUiOptions> options,
@@ -47,7 +45,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
     {
         _schemaService = schemaService ?? throw new ArgumentNullException(nameof(schemaService));
         _permissionService = permissionService ?? throw new ArgumentNullException(nameof(permissionService));
-        _visibilityService = visibilityService ?? throw new ArgumentNullException(nameof(visibilityService));
         _userProvider = userProvider ?? throw new ArgumentNullException(nameof(userProvider));
         _cacheProvider = cacheProvider ?? throw new ArgumentNullException(nameof(cacheProvider));
         _configProvider = configProvider;
@@ -507,16 +504,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         {
             foreach (var configList in config.Detail.RelatedLists)
             {
-                // Check Visibility Policy for Related List Override
-                if (!string.IsNullOrEmpty(configList.VisibilityPolicy))
-                {
-                     if (!await _visibilityService.EvaluatePolicyAsync(configList.VisibilityPolicy, cancellationToken))
-                     {
-                         // Remove the related list if it exists
-                         relatedLists.RemoveAll(r => r.RelationshipName.Equals(configList.RelationshipName, StringComparison.OrdinalIgnoreCase));
-                         continue;
-                     }
-                }
 
                 var existing = relatedLists.FirstOrDefault(r =>
                     r.RelationshipName.Equals(configList.RelationshipName, StringComparison.OrdinalIgnoreCase));
@@ -783,18 +770,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
             }
         }
 
-        // Check Visibility Policy
-        if (!string.IsNullOrEmpty(config.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy, cancellationToken))
-            {
-                if (options.HideInaccessibleNavItems)
-                    return null;
-                
-                item.IsEnabled = false;
-                item.IsVisible = false;
-            }
-        }
 
         // Check object permission if specified
         if (!string.IsNullOrEmpty(config.SObject))
@@ -860,22 +835,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         var permissions = await _permissionService.GetPermissionsAsync(objectName, cancellationToken);
         var config = options.GetObjectConfig(objectName);
 
-        // Object-level visibility
-        if (!string.IsNullOrEmpty(config.VisibilityPolicy))
-        {
-            var isVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy, cancellationToken);
-            if (!isVisible)
-            {
-                return new FormDescriptor
-                {
-                    ObjectName = objectName,
-                    ObjectLabel = config.DisplayLabel ?? describe.Label,
-                    Mode = mode,
-                    Title = null,
-                    IsVisible = false
-                };
-            }
-        }
 
         var descriptor = new FormDescriptor
         {
@@ -936,14 +895,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         {
             foreach (var sectionConfig in config.Form.Sections.OrderBy(s => s.Order))
             {
-                // Check Visibility Policy for Section
-                if (!string.IsNullOrEmpty(sectionConfig.VisibilityPolicy))
-                {
-                    if (!await _visibilityService.EvaluatePolicyAsync(sectionConfig.VisibilityPolicy, cancellationToken))
-                    {
-                        continue; // Skip this section entirely
-                    }
-                }
 
                 var section = new LayoutFormSection
                 {
@@ -1020,20 +971,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         var permissions = await _permissionService.GetPermissionsAsync(objectName, cancellationToken);
         var options = GetOptions();
         var config = options.GetObjectConfig(objectName);
-        if (!string.IsNullOrEmpty(config.VisibilityPolicy))
-        {
-            var isVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy, cancellationToken);
-            if (!isVisible)
-            {
-                return new ListDescriptor
-                {
-                    ObjectName = objectName,
-                    ObjectLabel = config.DisplayLabel ?? describe.LabelPlural,
-                    Title = config.DisplayLabel ?? describe.LabelPlural,
-                    IsVisible = false
-                };
-            }
-        }
         var nameField = await _schemaService.GetNameFieldAsync(objectName, cancellationToken);
 
         var descriptor = new ListDescriptor
@@ -1350,15 +1287,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         ObjectPermissionSnapshot permissions,
         DynamicUiOptions options)
     {
-        if (!string.IsNullOrEmpty(config.VisibilityPolicy))
-        {
-            if (!await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy))
-            {
-                if (options.HideUnauthorizedActions)
-                    return false;
-                action.IsEnabled = false;
-            }
-        }
 
         if (!string.IsNullOrEmpty(config.RequiredPermission))
         {
@@ -1392,21 +1320,6 @@ public class LayoutDescriptorService : ILayoutDescriptorService
             if (field == null)
                 continue;
 
-            // Check Visibility Policy
-            if (!string.IsNullOrEmpty(config.VisibilityPolicy))
-            {
-                bool isPolicyVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy);
-                if (!isPolicyVisible)
-                {
-                    field.IsVisible = false;
-                    // If hidden by policy, we might want to skip other updates or explicitly hide it
-                    if (options.HideInaccessibleFields)
-                    {
-                        field.IsHidden = true;
-                        field.IsReadOnly = true;
-                    }
-                }
-            }
 
             if (!string.IsNullOrEmpty(config.Label))
                 field.Label = config.Label;

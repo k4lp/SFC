@@ -50,11 +50,10 @@ Example:
 ```
 
 ## Notes
-- Honors FLS and createable/updateable flags.
+- Renders inputs from the describe createable/updateable flags (as reported by Salesforce for the current user).
 - Works with HTMX partials; detects `HX-Request`.
 - Embedded assets are served by `app.UseSalesforceCore()` at `/_salesforce` (current default). If you need a different asset strategy, mount your own static files or bundle assets into your app.
 - Record-type-aware picklists and dependent picklists use the Salesforce UI API when `sf-record-type-id` is set; values are filtered per record type.
-- Visibility policies can be applied with `sfc-policy` (fail closed when policy is missing/false); ensure `IUserContextProvider` is registered.
 
 ## Next Steps
 - Custom MVC usage: [12-Custom-MVC-Guide.md](12-Custom-MVC-Guide.md).

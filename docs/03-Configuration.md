@@ -247,15 +247,10 @@ The `Salesforce` section contains all core library settings.
 ### Security & Validation Options
 
 > [!IMPORTANT]
-> `EnforceFieldLevelSecurity` defaults to `true`. This changes which `ISchemaService` methods are called:
 > - Uses `GetAccessibleFieldsAsync` instead of `GetQueryableFieldsAsync`
-> - Uses `SanitizeFieldListWithFlsAsync` instead of `SanitizeFieldListAsync`
-> - **Unit tests** must mock both FLS methods to avoid null reference exceptions.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `EnforceFieldLevelSecurity` | `bool` | `true` | Enforce Salesforce Field Level Security. When false, `FlsEnforcementMode` is ignored. |
-| `FlsEnforcementMode` | `enum` | `Silent` | How to handle FLS violations: `Silent` (drop fields quietly), `Strict` (throw exception), `None` (bypass checks). |
 | `ValidateSoqlInputs` | `bool` | `true` | Validate and sanitize SOQL inputs. |
 | `LookupSearchLimit` | `int` | `15` | Maximum lookup search results. |
 
@@ -496,14 +491,6 @@ The `DynamicUi` section configures the Dynamic UI system for permission-aware UI
 | `PermissionCacheDuration` | `TimeSpan` | `00:05:00` | Cache duration for permission snapshots. |
 | `LayoutCacheDuration` | `TimeSpan` | `00:10:00` | Cache duration for layout descriptors. |
 | `BypassCache` | `bool` | `false` | Skip all caching (for debugging). |
-
-### Visibility Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `HideInaccessibleNavItems` | `bool` | `true` | Hide navigation items user can't access. |
-| `HideInaccessibleFields` | `bool` | `true` | Hide fields user can't read. |
-| `HideUnauthorizedActions` | `bool` | `true` | Hide actions user can't perform. |
 
 ### Layout Options
 
@@ -937,14 +924,12 @@ The old `UseDistributedCache` boolean is still supported but deprecated:
 ```json
 {
   "Salesforce": {
-    "EnforceFieldLevelSecurity": true
   }
 }
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `EnforceFieldLevelSecurity` | `bool` | `true` | Filter read fields and write payloads using Salesforce FLS. Disable to pass fields through and let Salesforce enforce. |
 
 ### SOQL Injection Prevention
 
@@ -1026,7 +1011,6 @@ builder.Services.AddSalesforceCore(options =>
     options.MaxRetries = 3;
     options.RetryBaseDelay = TimeSpan.FromSeconds(1);
     options.CacheProvider = CacheProviderType.Distributed; // SalesforceCore.Services.Caching
-    options.EnforceFieldLevelSecurity = true;
 });
 ```
 
@@ -1105,7 +1089,6 @@ builder.Services.PostConfigure<SalesforceOptions>(options =>
     "EnableDebugLogging": false,
     "CacheProvider": "Distributed",
     "MaxRetries": 5,
-    "EnforceFieldLevelSecurity": true,
     "ValidateSoqlInputs": true
   },
   "DynamicUi": {
@@ -1196,7 +1179,6 @@ Here's a complete, production-ready configuration:
     "DefaultPageSize": 25,
     "MaxPageSize": 100,
 
-	    "EnforceFieldLevelSecurity": true,
 	    "ValidateSoqlInputs": true,
 	    "MaxFileUploadSize": 26214400,
 	    "EnableDebugLogging": false,
@@ -1279,21 +1261,6 @@ Create separate files for each environment and use the right domain.
 ### 4. Configure Appropriate Timeouts
 
 Set timeouts based on your SLAs and Salesforce response times.
-
-### 5. Enable FLS and Input Validation
-
-Always keep security features enabled:
-
-```json
-{
-  "Salesforce": {
-    "EnforceFieldLevelSecurity": true,
-    "ValidateSoqlInputs": true
-  }
-}
-```
-
----
 
 ## Troubleshooting Configuration Issues
 

@@ -491,22 +491,6 @@ public class RecentItem
 }
 
 /// <summary>
-/// Attributes associated with a Salesforce record.
-/// </summary>
-public class RecordAttributes
-{
-    /// <summary>
-    /// Object type.
-    /// </summary>
-    public string Type { get; set; } = string.Empty;
-
-    /// <summary>
-    /// REST API URL for the record.
-    /// </summary>
-    public string Url { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// Represents an attached file record.
 /// </summary>
 public class AttachedFile

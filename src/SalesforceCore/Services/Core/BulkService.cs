@@ -58,7 +58,7 @@ public class BulkService : IBulkService
     /// <inheritdoc/>
     public async Task<BulkJobInfo> GetJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
-        return await _client.GetAsync<BulkJobInfo>($"{SalesforceConstants.Paths.BulkIngest}/{jobId}", cancellationToken);
+        return await _client.GetAsync<BulkJobInfo>($"{JobPath(SalesforceConstants.Paths.BulkIngest, jobId)}", cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -66,7 +66,7 @@ public class BulkService : IBulkService
     {
         _logger.LogDebug("Uploading data to bulk job {JobId}", jobId);
 
-        var endpoint = $"{SalesforceConstants.Paths.BulkIngest}/{jobId}/batches";
+        var endpoint = $"{JobPath(SalesforceConstants.Paths.BulkIngest, jobId)}/batches";
         await _client.PutRawAsync(endpoint, csvData, SalesforceConstants.Headers.ContentTypeCsv, cancellationToken);
 
         _logger.LogDebug("Data uploaded successfully to job {JobId}", jobId);
@@ -85,8 +85,9 @@ public class BulkService : IBulkService
     {
         _logger.LogDebug("Closing bulk job {JobId}", jobId);
 
-        var response = await _client.PostAsync<BulkJobInfo>(
-            $"{SalesforceConstants.Paths.BulkIngest}/{jobId}",
+        // Bulk API 2.0 changes job state with PATCH (1.x used POST, which Salesforce rejects).
+        var response = await _client.PatchAsync<BulkJobInfo>(
+            JobPath(SalesforceConstants.Paths.BulkIngest, jobId),
             new { state = SalesforceConstants.Bulk.StateUploadComplete },
             cancellationToken);
 
@@ -100,8 +101,9 @@ public class BulkService : IBulkService
     {
         _logger.LogWarning("Aborting bulk job {JobId}", jobId);
 
-        var response = await _client.PostAsync<BulkJobInfo>(
-            $"{SalesforceConstants.Paths.BulkIngest}/{jobId}",
+        // Bulk API 2.0 changes job state with PATCH (1.x used POST, which Salesforce rejects).
+        var response = await _client.PatchAsync<BulkJobInfo>(
+            JobPath(SalesforceConstants.Paths.BulkIngest, jobId),
             new { state = SalesforceConstants.Bulk.StateAborted },
             cancellationToken);
 
@@ -112,7 +114,7 @@ public class BulkService : IBulkService
     public async Task DeleteJobAsync(string jobId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Deleting bulk job {JobId}", jobId);
-        await _client.DeleteAsync($"{SalesforceConstants.Paths.BulkIngest}/{jobId}", cancellationToken);
+        await _client.DeleteAsync($"{JobPath(SalesforceConstants.Paths.BulkIngest, jobId)}", cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -141,21 +143,21 @@ public class BulkService : IBulkService
     /// <inheritdoc/>
     public async Task<string> GetSuccessfulResultsAsync(string jobId, CancellationToken cancellationToken = default)
     {
-        var endpoint = $"{SalesforceConstants.Paths.BulkIngest}/{jobId}/successfulResults";
+        var endpoint = $"{JobPath(SalesforceConstants.Paths.BulkIngest, jobId)}/successfulResults";
         return await GetCsvResultsAsync(endpoint, cancellationToken);
     }
 
     /// <inheritdoc/>
     public async Task<string> GetFailedResultsAsync(string jobId, CancellationToken cancellationToken = default)
     {
-        var endpoint = $"{SalesforceConstants.Paths.BulkIngest}/{jobId}/failedResults";
+        var endpoint = $"{JobPath(SalesforceConstants.Paths.BulkIngest, jobId)}/failedResults";
         return await GetCsvResultsAsync(endpoint, cancellationToken);
     }
 
     /// <inheritdoc/>
     public async Task<string> GetUnprocessedRecordsAsync(string jobId, CancellationToken cancellationToken = default)
     {
-        var endpoint = $"{SalesforceConstants.Paths.BulkIngest}/{jobId}/unprocessedrecords";
+        var endpoint = $"{JobPath(SalesforceConstants.Paths.BulkIngest, jobId)}/unprocessedrecords";
         return await GetCsvResultsAsync(endpoint, cancellationToken);
     }
 
@@ -336,13 +338,13 @@ public class BulkService : IBulkService
     {
         var queryParams = new List<string>();
         if (!string.IsNullOrEmpty(locator))
-            queryParams.Add($"locator={locator}");
+            queryParams.Add($"locator={Uri.EscapeDataString(locator)}");
         if (maxRecords.HasValue)
             queryParams.Add($"maxRecords={maxRecords.Value}");
 
         var endpoint = queryParams.Count > 0
-            ? $"{SalesforceConstants.Paths.BulkQuery}/{jobId}/results?{string.Join("&", queryParams)}"
-            : $"{SalesforceConstants.Paths.BulkQuery}/{jobId}/results";
+            ? $"{JobPath(SalesforceConstants.Paths.BulkQuery, jobId)}/results?{string.Join("&", queryParams)}"
+            : $"{JobPath(SalesforceConstants.Paths.BulkQuery, jobId)}/results";
 
         return await GetCsvResultsAsync(endpoint, cancellationToken);
     }
@@ -642,13 +644,22 @@ public class BulkService : IBulkService
 
     private async Task<BulkJobInfo> GetQueryJobInfoAsync(string jobId, CancellationToken cancellationToken)
     {
-        return await _client.GetAsync<BulkJobInfo>($"{SalesforceConstants.Paths.BulkQuery}/{jobId}", cancellationToken);
+        return await _client.GetAsync<BulkJobInfo>($"{JobPath(SalesforceConstants.Paths.BulkQuery, jobId)}", cancellationToken);
     }
 
     private async Task AbortQueryJobAsync(string jobId, CancellationToken cancellationToken)
     {
-        await _client.PostAsync($"{SalesforceConstants.Paths.BulkQuery}/{jobId}", new { state = SalesforceConstants.Bulk.StateAborted }, cancellationToken);
+        await _client.PatchAsync(JobPath(SalesforceConstants.Paths.BulkQuery, jobId), new { state = SalesforceConstants.Bulk.StateAborted }, cancellationToken);
     }
 
     #endregion
+
+    private static string JobPath(string root, string jobId)
+    {
+        if (!Utilities.SecurityUtils.IsValidSalesforceId(jobId))
+        {
+            throw new ArgumentException($"Invalid bulk job id: '{jobId}'.", nameof(jobId));
+        }
+        return $"{root}/{jobId}";
+    }
 }

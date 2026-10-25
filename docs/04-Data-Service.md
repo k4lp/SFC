@@ -750,23 +750,7 @@ var record = await _dataService.GetRecordAsync("Account", userProvidedId);
 
 ### Field-Level Security
 
-When `EnforceFieldLevelSecurity` is enabled (default), the service respects Salesforce FLS:
-
-```csharp
-// Fields the user can't read are automatically filtered
-var record = await _dataService.GetRecordAsync("Account", id);
-// SensitiveField__c won't appear if user lacks read access
-
-// Fields the user can't write are filtered on create/update
-var data = new Dictionary<string, object?>
-{
-    ["Name"] = "Test",
-    ["ReadOnlyField__c"] = "value"  // Filtered out if not createable
-};
-await _dataService.CreateRecordAsync("Account", data);
-```
-
-If you disable FLS enforcement, the data service will pass fields through and let Salesforce reject unauthorized access.
+The data service does not filter fields: payloads and field lists are sent as-is (after syntactic validation of names), and Salesforce enforces FLS/CRUD. A write that touches a field the user cannot edit fails with `SalesforceFieldSecurityException`.
 
 ---
 

@@ -59,7 +59,7 @@ The architecture uses the Strategy pattern for key components like Caching and A
 - **`Models/`**: Contains Data Transfer Objects (DTOs) representing Salesforce resources (Errors, Metadata, Query results).
 - **`Query/`**: Implements the LINQ provider, translating C# LINQ expressions into Salesforce SOQL strings.
 - **`Schema/`**: Logic for managing and discovering Salesforce schema (SObjects, Fields) and handling differences/migrations.
-- **`Security/`**: Components for handling Field Level Security (FLS) and other security-related logic.
+- **`Security/`**: Transport security helpers: instance-host allowlist (token sending), log redaction, missing-config token provider.
 - **`Services/`**: The core business logic layer. Contains implementations for interacting with various Salesforce APIs (Data, Tooling, Bulk, etc.).
 - **`Tracking/`**: Logic for tracking changes to entities, useful for optimizing updates (only sending changed fields).
 - **`Utilities/`**: Helper classes for common tasks like string manipulation, URL formatting, and bitwise operations.

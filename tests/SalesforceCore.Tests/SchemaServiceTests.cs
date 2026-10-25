@@ -99,86 +99,8 @@ public class SchemaServiceTests
 
     #region SanitizeFieldListWithFlsAsync Tests
 
-    [Fact]
-    public async Task SanitizeFieldListWithFlsAsync_ShouldRemoveInaccessibleFields()
-    {
-        // Arrange
-        var describe = new SObjectDescribe
-        {
-            Name = "Account",
-            Fields = new List<SObjectField>
-            {
-                new SObjectField { Name = "Id", Accessible = true, DeprecatedAndHidden = false, Type = "id" },
-                new SObjectField { Name = "Name", Accessible = true, DeprecatedAndHidden = false, Type = "string" },
-                new SObjectField { Name = "Secret__c", Accessible = false, DeprecatedAndHidden = false, Type = "string" }
-            }
-        };
 
-        SetupDescribeCache("Account", describe);
 
-        var requestedFields = new[] { "Id", "Name", "Secret__c" };
-
-        // Act
-        var result = await _service.SanitizeFieldListWithFlsAsync("Account", requestedFields);
-
-        // Assert
-        result.Should().Contain("Id");
-        result.Should().Contain("Name");
-        result.Should().NotContain("Secret__c");
-    }
-
-    [Fact]
-    public async Task SanitizeFieldListWithFlsAsync_ShouldAlwaysIncludeId()
-    {
-        // Arrange
-        var describe = new SObjectDescribe
-        {
-            Name = "Account",
-            Fields = new List<SObjectField>
-            {
-                new SObjectField { Name = "Id", Accessible = true, DeprecatedAndHidden = false, Type = "id" },
-                new SObjectField { Name = "Name", Accessible = true, DeprecatedAndHidden = false, Type = "string" }
-            }
-        };
-
-        SetupDescribeCache("Account", describe);
-
-        var requestedFields = new[] { "Name" }; // Not requesting Id
-
-        // Act
-        var result = await _service.SanitizeFieldListWithFlsAsync("Account", requestedFields);
-
-        // Assert
-        result.Should().Contain("Id"); // Id should be added automatically
-        result.Should().Contain("Name");
-    }
-
-    [Fact]
-    public async Task SanitizeFieldListWithFlsAsync_ShouldHandleRelationshipFields()
-    {
-        // Arrange
-        var describe = new SObjectDescribe
-        {
-            Name = "Contact",
-            Fields = new List<SObjectField>
-            {
-                new SObjectField { Name = "Id", Accessible = true, DeprecatedAndHidden = false, Type = "id" },
-                new SObjectField { Name = "AccountId", Accessible = true, DeprecatedAndHidden = false, Type = "reference" }
-            }
-        };
-
-        SetupDescribeCache("Contact", describe);
-
-        var requestedFields = new[] { "Id", "AccountId", "Account.Name" };
-
-        // Act
-        var result = await _service.SanitizeFieldListWithFlsAsync("Contact", requestedFields);
-
-        // Assert
-        result.Should().Contain("Id");
-        result.Should().Contain("AccountId");
-        result.Should().NotContain("Account.Name"); // Base field is AccountId, relationship notation removed
-    }
 
     #endregion
 

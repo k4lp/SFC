@@ -49,8 +49,6 @@ public class DataPipelineIntegrationTests
 
         mockSchema.Setup(s => s.SanitizeFieldListAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, IEnumerable<string> fields, CancellationToken _) => fields.ToList());
-        mockSchema.Setup(s => s.SanitizeFieldListWithFlsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string _, IEnumerable<string> fields, CancellationToken _) => fields.ToList());
 
         // Capture the actual query sent
         string capturedUrl = "";
@@ -519,8 +517,6 @@ public class DataPipelineIntegrationTests
             });
 
         mockSchema.Setup(s => s.SanitizeFieldListAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string _, IEnumerable<string> fields, CancellationToken _) => fields.ToList());
-        mockSchema.Setup(s => s.SanitizeFieldListWithFlsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, IEnumerable<string> fields, CancellationToken _) => fields.ToList());
     }
 

@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="xunit" Version="2.6.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.4">
@@ -23,6 +27,8 @@
     <ProjectReference Include="..\..\src\SalesforceCore\SalesforceCore.csproj" />
     <ProjectReference Include="..\..\src\SalesforceCore.AspNetCore\SalesforceCore.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\SalesforceCore.ModelGenerator\SalesforceCore.ModelGenerator.csproj" />
+    <ProjectReference Include="..\..\src\SalesforceCore.SqlServer\SalesforceCore.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\SalesforceCore.Abstractions\SalesforceCore.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

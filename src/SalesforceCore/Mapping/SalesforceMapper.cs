@@ -29,12 +29,16 @@ public static class SalesforceMapper
     private static bool _requireSalesforceFieldAttribute = false;
 
     /// <summary>
-    /// Configures the SalesforceMapper behavior.
-    /// Call this during application startup to change default mapping behavior.
+    /// Whether only [SalesforceField]-attributed properties are mapped (process-wide setting).
+    /// </summary>
+    public static bool IsSalesforceFieldAttributeRequired => _requireSalesforceFieldAttribute;
+
+    /// <summary>
+    /// Configures the SalesforceMapper behavior (process-wide). Applied automatically from
+    /// <c>SalesforceOptions.RequireSalesforceFieldAttribute</c> when options are first resolved.
     /// </summary>
     /// <param name="requireSalesforceFieldAttribute">
     /// When true, properties without [SalesforceField] attribute are automatically ignored in SOQL queries.
-    /// This prevents "No such column" errors when models have computed or non-Salesforce properties.
     /// </param>
     public static void Configure(bool requireSalesforceFieldAttribute)
     {

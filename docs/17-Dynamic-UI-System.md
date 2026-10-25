@@ -1707,21 +1707,6 @@ var contactPerms = await _permissions.GetPermissionsAsync("Contact");
 var leadPerms = await _permissions.GetPermissionsAsync("Lead");
 ```
 
-### 3. Always Check Visibility Flags
-
-```csharp
-// Always check before rendering
-foreach (var field in formDescriptor.Fields.Where(f => f.IsVisible))
-{
-    // Render field
-}
-
-foreach (var action in listDescriptor.RowActions.Where(a => a.IsEnabled))
-{
-    // Render action button
-}
-```
-
 ### 4. Handle Permission Denial Gracefully
 
 ```csharp
@@ -1817,7 +1802,7 @@ curl -H "Authorization: Bearer TOKEN" \
 ## Next Steps
 
 - [03-Configuration.md](03-Configuration.md) - Complete configuration reference
-- [09-Security.md](09-Security.md) - Security and FLS details
+- [09-Security.md](09-Security.md) - Security details
 - [15-Tag-Helpers.md](15-Tag-Helpers.md) - Razor Tag Helpers for forms
 - [12-Tutorial-MVC-CRUD-App.md](12-Tutorial-MVC-CRUD-App.md) - Step-by-step MVC tutorial
 

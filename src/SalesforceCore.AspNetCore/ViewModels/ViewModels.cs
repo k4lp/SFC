@@ -1,22 +1,10 @@
+using FormMode = SalesforceCore.Models.Layout.FormMode;
 using System.Text.Json.Nodes;
 using SalesforceCore.Models.Configuration;
 using SalesforceCore.Models.Metadata;
 using SalesforceCore.Services.Data;
 
 namespace SalesforceCore.AspNetCore.ViewModels;
-
-/// <summary>
-/// Form mode enum.
-/// </summary>
-public enum FormMode
-{
-    /// <summary>Create new record.</summary>
-    Create,
-    /// <summary>Edit existing record.</summary>
-    Edit,
-    /// <summary>View-only mode.</summary>
-    View
-}
 
 /// <summary>
 /// Base view model for Salesforce views.

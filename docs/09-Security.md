@@ -8,7 +8,6 @@ Comprehensive security guidance for SalesforceCore - designed for government-gra
 2. [Core Security Principles](#core-security-principles)
 3. [SOQL Injection Prevention](#soql-injection-prevention)
 4. [Authentication Security](#authentication-security)
-5. [Field-Level Security (FLS)](#field-level-security-fls)
 6. [Fluent Permission Guard](#fluent-permission-guard)
 7. [Permission Manifest / Audit](#permission-manifest--audit)
 8. [Input Validation](#input-validation)
@@ -30,7 +29,7 @@ SalesforceCore implements a defense-in-depth approach with multiple security lay
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Application Layer                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │  Visibility     │  │  FLS Service    │  │  Permission     │  │
+│  │  Input escaping │  │  Host allowlist │  │  Token crypto   │  │
 │  │  Service        │  │  (Field-Level)  │  │  Service        │  │
 │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘  │
 ├───────────┼────────────────────┼────────────────────┼───────────┤
@@ -77,8 +76,6 @@ All security features are **enabled by default**:
 ```csharp
 public class SalesforceOptions
 {
-    public bool EnforceFieldLevelSecurity { get; set; } = true;  // Default: ON
-    public FlsEnforcementMode FlsEnforcementMode { get; set; } = FlsEnforcementMode.Silent; // Silent, Strict, None
     public bool ValidateSoqlInputs { get; set; } = true;         // Default: ON (basic raw SOQL validation)
     public bool ForceSecureCookie { get; set; } = true;          // Default: ON
     public string SessionCookieName { get; set; } = "__Host-SalesforceSession"; // Secure prefix
@@ -89,7 +86,6 @@ public class SalesforceOptions
 When security checks fail, the system denies access rather than allowing it:
 
 ```csharp
-// VisibilityService fails securely - unknown policy = hidden
 if (!config.Policies.TryGetValue(policyName, out var policy))
 {
     _logger.LogWarning("Policy '{PolicyName}' not found. Defaulting to Hidden.", policyName);
@@ -223,11 +219,12 @@ var query = SoqlBuilder.From("SetupEntityAccess")
     .Build();
 ```
 
-### MVC Authorization (`[SalesforceAuthorize]`)
+## Access control is Salesforce's job
 
-`SalesforceCore.AspNetCore` provides `[SalesforceAuthorize]` for server-side authorization checks (permission sets, profiles, custom permissions, and object-level CRUD). Internally it:
-- Uses `IDataService` for access checks and constructs all SOQL via `SoqlBuilder`/`SoqlCondition` (no direct SOQL interpolation).
-- Logs exceptions via `ILogger<SalesforceAuthorizeAttribute>` and avoids leaking raw exception messages in non-development environments.
+> **2.0:** SalesforceCore does not gate access. Object/field visibility, CRUD and FLS are enforced by Salesforce itself;
+> the library sends what you ask for and surfaces Salesforce's answer as a typed exception
+> (e.g. `SalesforceFieldSecurityException` for `INVALID_FIELD_FOR_INSERT_UPDATE`, `SalesforcePermissionException` for 403).
+> See [MIGRATION.md](../MIGRATION.md).
 
 ---
 
@@ -310,72 +307,6 @@ if (token.ExpiresAt < DateTime.UtcNow.AddMinutes(TokenExpiryBufferMinutes))
     await RefreshTokenAsync(token);
 }
 ```
-
----
-
-## Field-Level Security (FLS)
-
-### Automatic FLS Enforcement
-
-When `EnforceFieldLevelSecurity = true` (default), all operations respect Salesforce FLS:
-
-```csharp
-// DataService filters read fields and write payloads using schema-based FLS
-var readableFields = await _schemaService.SanitizeFieldListWithFlsAsync(
-    "Account",
-    new[] { "Id", "Name", "Owner.Name" },
-    cancellationToken);
-
-// Only readable fields are sent in SELECT, and only createable/updateable fields in writes.
-```
-
-### FLS in Practice
-
-```csharp
-// User tries to set a non-createable field
-var data = new Dictionary<string, object?>
-{
-    ["Name"] = "Acme Corp",        // Createable: YES
-    ["Industry"] = "Technology",    // Createable: YES
-    ["SystemModstamp"] = DateTime.Now, // Createable: NO - filtered out
-    ["CreatedById"] = "005xxx"      // Createable: NO - filtered out
-};
-
-// Only Name and Industry are sent to Salesforce
-await dataService.CreateRecordAsync("Account", data);
-```
-
-### FLS Enforcement Modes
-
-The `FlsEnforcementMode` setting controls how violations are handled:
-
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `Silent` | Fields quietly dropped (default) | Production - graceful degradation |
-| `Strict` | `FlsException` thrown with details | Development - catch issues early |
-| `None` | No filtering performed | Testing or Salesforce-side enforcement |
-
-```csharp
-// Enable strict mode to catch permission issues during development
-services.AddSalesforceCore(options => {
-    options.EnforceFieldLevelSecurity = true;
-    options.FlsEnforcementMode = FlsEnforcementMode.Strict;
-});
-
-// In Strict mode, this throws FlsException listing "SystemModstamp", "CreatedById"
-await dataService.CreateRecordAsync("Account", data);
-```
-
-### Query Field Filtering
-
-Fields are also filtered on read operations:
-
-```csharp
-var record = await dataService.GetRecordAsync("Account", accountId);
-// Only returns fields the user has read access to
-```
-
-If you disable FLS enforcement, SalesforceCore will pass fields through and rely on Salesforce to reject unauthorized access.
 
 ---
 
@@ -800,8 +731,6 @@ services.AddOptions<SalesforceOptions>()
   - [ ] Token revocation implemented
 
 - [ ] **Authorization**
-  - [ ] FLS enforcement enabled
-  - [ ] Visibility policies configured
   - [ ] Least privilege Salesforce profiles/permission sets
 
 - [ ] **Input Validation**

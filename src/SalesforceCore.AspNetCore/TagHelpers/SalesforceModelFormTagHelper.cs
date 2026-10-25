@@ -1,22 +1,10 @@
+using SalesforceCore.Models.Layout;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using SalesforceCore.Services.Metadata;
 
 namespace SalesforceCore.AspNetCore.TagHelpers;
-
-/// <summary>
-/// Defines the form mode which affects field rendering behavior.
-/// </summary>
-public enum FormMode
-{
-    /// <summary>Create mode - shows createable fields.</summary>
-    Create,
-    /// <summary>Edit mode - shows updateable fields.</summary>
-    Edit,
-    /// <summary>View mode - all fields are readonly.</summary>
-    View
-}
 
 /// <summary>
 /// Tag helper that generates a complete Salesforce form with all fields.

@@ -236,11 +236,6 @@ public class NavigationItemConfig
     /// </summary>
     public string? RequiredPermission { get; set; }
 
-    /// <summary>
-    /// The name of a visibility policy to apply to this item.
-    /// If set, the policy must evaluate to true for the item to be visible.
-    /// </summary>
-    public string? VisibilityPolicy { get; set; }
 
     /// <summary>
     /// Required feature flags.
@@ -323,10 +318,6 @@ public class ObjectUiConfig
     /// </summary>
     public List<ActionConfig>? CustomActions { get; set; }
 
-    /// <summary>
-    /// The name of a visibility policy to apply to this object's views.
-    /// </summary>
-    public string? VisibilityPolicy { get; set; }
 }
 
 /// <summary>
@@ -533,10 +524,6 @@ public class SectionConfig
     /// </summary>
     public bool IsCollapsed { get; set; }
 
-    /// <summary>
-    /// The name of a visibility policy to apply to this section.
-    /// </summary>
-    public string? VisibilityPolicy { get; set; }
 }
 
 /// <summary>
@@ -589,10 +576,6 @@ public class FieldConfig
     /// </summary>
     public bool? IsRequired { get; set; }
 
-    /// <summary>
-    /// The name of a visibility policy to apply to this field.
-    /// </summary>
-    public string? VisibilityPolicy { get; set; }
 
     /// <summary>
     /// Custom CSS class.
@@ -650,10 +633,6 @@ public class DynamicRelatedListConfig
     /// </summary>
     public bool ShowCreateButton { get; set; } = true;
 
-    /// <summary>
-    /// The name of a visibility policy to apply to this related list.
-    /// </summary>
-    public string? VisibilityPolicy { get; set; }
 }
 
 /// <summary>
@@ -691,11 +670,6 @@ public class ActionConfig
     /// </summary>
     public string? RequiredPermission { get; set; }
 
-    /// <summary>
-    /// The name of a visibility policy to apply to this item.
-    /// If set, the policy must evaluate to true for the item to be visible.
-    /// </summary>
-    public string? VisibilityPolicy { get; set; }
 
     /// <summary>
     /// CSS class.

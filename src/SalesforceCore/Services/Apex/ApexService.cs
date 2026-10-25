@@ -125,8 +125,16 @@ public class ApexService : IApexService
         return await _client.DeleteAsync<T>(url, cancellationToken);
     }
 
-    private string BuildApexPath(string path)
+    private static string BuildApexPath(string path)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var pathOnly = path.Split('?', 2)[0];
+        if (pathOnly.Contains("..", StringComparison.Ordinal) || pathOnly.Contains('\\') || pathOnly.Contains("//", StringComparison.Ordinal)
+            || Uri.TryCreate(path, UriKind.Absolute, out var abs) && abs.Scheme is "http" or "https")
+        {
+            throw new ArgumentException("Apex REST path must be a relative path under /services/apexrest/ without '..', '\\' or '//'.", nameof(path));
+        }
+
         if (path.StartsWith(SalesforceConstants.Paths.ApexRest, StringComparison.OrdinalIgnoreCase))
         {
             return path;

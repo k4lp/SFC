@@ -36,7 +36,7 @@ The `src/SalesforceCore/Models` directory contains the **Data Transfer Objects (
 - `ErrorResponse`: The standard JSON error array returned by Salesforce APIs (`[{"message":"...", "errorCode":"..."}]`).
 
 ### `Security/`
-**Purpose**: Models related to Field Level Security (FLS) and permission checks.
+**Purpose**: Models describing permission/access metadata as reported by Salesforce (informational, not enforced).
 
 ## 3. Design Decisions & C# Concepts
 

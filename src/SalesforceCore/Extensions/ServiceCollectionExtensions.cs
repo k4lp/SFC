@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
+using Microsoft.Extensions.Hosting;
+using SalesforceCore.Http;
 using SalesforceCore.Models.Configuration;
 using SalesforceCore.Security;
 using SalesforceCore.Services.Apex;
@@ -34,23 +36,20 @@ public static class ServiceCollectionExtensions
     /// Adds SalesforceCore services with configuration action.
     /// </summary>
     /// <param name="services">Service collection.</param>
-    /// <param name="configure">Configuration action.</param>
+    /// <param name="configure">Configuration action. Every option (HTTP timeouts, retries, cache provider, API version...) is honoured.</param>
     /// <returns>Service collection for chaining.</returns>
     public static IServiceCollection AddSalesforceCore(
         this IServiceCollection services,
         Action<SalesforceOptions> configure)
     {
-        // Configure options
+        ArgumentNullException.ThrowIfNull(configure);
         services.Configure(configure);
-
-        // Register core services
-        RegisterCoreServices(services, null);
-
+        RegisterCoreServices(services, null, configure, registerDefaultTokenProvider: true);
         return services;
     }
 
     /// <summary>
-    /// Adds SalesforceCore services with configuration from IConfiguration.
+    /// Adds SalesforceCore services with configuration from IConfiguration (section <c>Salesforce</c>).
     /// </summary>
     /// <param name="services">Service collection.</param>
     /// <param name="configuration">Configuration root.</param>
@@ -59,31 +58,26 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Bind configuration section
-        services.Configure<SalesforceOptions>(
-            configuration.GetSection(SalesforceOptions.SectionName));
-
-        // Register core services
-        RegisterCoreServices(services, configuration);
-
+        ArgumentNullException.ThrowIfNull(configuration);
+        services.Configure<SalesforceOptions>(configuration.GetSection(SalesforceOptions.SectionName));
+        RegisterCoreServices(services, configuration, null, registerDefaultTokenProvider: true);
         return services;
     }
 
     /// <summary>
-    /// Adds SalesforceCore services with default configuration.
-    /// Requires Salesforce:ClientId and Salesforce:Domain in configuration.
+    /// Adds SalesforceCore services with default configuration (configure <see cref="SalesforceOptions"/> elsewhere).
     /// </summary>
     /// <param name="services">Service collection.</param>
     /// <returns>Service collection for chaining.</returns>
     public static IServiceCollection AddSalesforceCore(this IServiceCollection services)
     {
-        // Use empty configuration, expects appsettings.json configuration
-        RegisterCoreServices(services, null);
+        RegisterCoreServices(services, null, null, registerDefaultTokenProvider: true);
         return services;
     }
 
     /// <summary>
-    /// Adds SalesforceCore services without authentication (for custom token providers).
+    /// Adds SalesforceCore services without registering a token provider (bring your own via
+    /// <see cref="AddSalesforceTokenProvider{TTokenProvider}"/>). Registers the same full service set as AddSalesforceCore.
     /// </summary>
     /// <param name="services">Service collection.</param>
     /// <param name="configure">Configuration action.</param>
@@ -92,42 +86,14 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<SalesforceOptions> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         services.Configure(configure);
-
-        // Fail-fast options validation (especially important for SQL cache encryption settings).
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<SalesforceOptions>, SalesforceOptionsValidator>());
-        services.AddOptions<SalesforceOptions>().ValidateOnStart();
-
-        // Get options to determine cache provider
-        var options = new SalesforceOptions();
-        configure(options);
-
-        // Register cache provider based on configuration
-        RegisterCacheProvider(services, options);
-
-        // Register only core services without auth
-        services.AddHttpClient<ISalesforceClient, SalesforceClient>();
-        services.AddScoped<ISalesforceUrlBuilder, SalesforceUrlBuilder>();
-        services.AddScoped<ISchemaService, SchemaService>();
-        services.AddScoped<IDataService, DataService>();
-        services.AddScoped<ILookupService, LookupService>();
-        services.AddScoped<IConfigurationService, ConfigurationService>();
-        services.AddScoped<ILimitsService, LimitsService>();
-
-        // Register typed data service for strongly-typed operations with LINQ support
-        services.AddScoped<ITypedDataService, TypedDataService>();
-
-        // Register Validation, Tracking, and Schema services
-        services.AddScoped<IFieldValidator, FieldValidator>();
-        services.AddScoped<IValidationRuleEngine, ValidationRuleEngine>();
-        services.AddScoped<IChangeTracker, ChangeTracker>();
-        services.AddScoped<IRecordTypeManager, RecordTypeManager>();
-
+        RegisterCoreServices(services, null, configure, registerDefaultTokenProvider: false);
         return services;
     }
 
     /// <summary>
-    /// Adds a custom token provider.
+    /// Adds a custom token provider (replaces any previously registered one).
     /// </summary>
     /// <typeparam name="TTokenProvider">Token provider implementation type.</typeparam>
     /// <param name="services">Service collection.</param>
@@ -136,160 +102,182 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services)
         where TTokenProvider : class, ITokenProvider
     {
+        services.RemoveAll<ITokenProvider>();
         services.AddScoped<ITokenProvider, TTokenProvider>();
         return services;
     }
 
-    private static void RegisterCoreServices(IServiceCollection services, IConfiguration? configuration)
+    /// <summary>
+    /// Appends a <see cref="DelegatingHandler"/> to the Salesforce API HTTP pipeline (innermost, i.e. it runs once per
+    /// attempt, after retry/circuit-breaker, logging and API-usage handlers). Use it for tracing, correlation ids,
+    /// custom headers, metrics, or test interception.
+    /// </summary>
+    /// <typeparam name="THandler">Handler type (resolved from DI, registered transient if not already registered).</typeparam>
+    public static IServiceCollection AddSalesforceHttpHandler<THandler>(this IServiceCollection services)
+        where THandler : DelegatingHandler
     {
-        // Get options for configuration (use defaults if not available)
-        var options = new SalesforceOptions();
-        configuration?.GetSection(SalesforceOptions.SectionName).Bind(options);
+        services.TryAddTransient<THandler>();
+        services.AddHttpClient(SalesforceHttpClientNames.Api).AddHttpMessageHandler<THandler>();
+        return services;
+    }
 
-        // Fail-fast options validation (especially important for SQL cache encryption settings).
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<SalesforceOptions>, SalesforceOptionsValidator>());
+    /// <summary>
+    /// Customises the Salesforce API HttpClient (e.g. <c>ConfigurePrimaryHttpMessageHandler</c> for proxies or client certificates).
+    /// </summary>
+    public static IServiceCollection ConfigureSalesforceHttpClient(this IServiceCollection services, Action<IHttpClientBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(services.AddHttpClient(SalesforceHttpClientNames.Api));
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the background service that proactively renews server-to-server tokens (JWT bearer / client credentials).
+    /// Registered automatically when one of those providers is configured from IConfiguration.
+    /// </summary>
+    public static IServiceCollection AddSalesforceBackgroundTokenRefresh(this IServiceCollection services)
+    {
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, TokenRefreshBackgroundService>());
+        return services;
+    }
+
+    private static void RegisterCoreServices(
+        IServiceCollection services,
+        IConfiguration? configuration,
+        Action<SalesforceOptions>? configure,
+        bool registerDefaultTokenProvider)
+    {
+        // Registration-time snapshot: used ONLY for fail-fast checks and choosing the cache provider.
+        // Runtime settings (HTTP timeouts, retries, API version...) are read lazily from IOptions so that later
+        // Configure/PostConfigure calls are honoured too.
+        var snapshot = new SalesforceOptions();
+        configuration?.GetSection(SalesforceOptions.SectionName).Bind(snapshot);
+        configure?.Invoke(snapshot);
+
         services.AddOptions<SalesforceOptions>().ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<SalesforceOptions>, SalesforceOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<SalesforceOptions>, SalesforceOptionsPostConfigure>());
 
-        // Register cache provider based on configuration
-        RegisterCacheProvider(services, options);
+        RegisterCacheProvider(services, snapshot);
 
-        // Configure SalesforceMapper with options
-        // This affects SOQL query generation for typed operations
-        Mapping.SalesforceMapper.Configure(options.RequireSalesforceFieldAttribute);
+        // Process-wide mapper setting; re-applied from IOptions by SalesforceOptionsPostConfigure.
+        Mapping.SalesforceMapper.Configure(snapshot.RequireSalesforceFieldAttribute);
 
-        // Determine if we need to register a default TokenProvider
-        // We only do this if no ITokenProvider is already registered
-        if (!services.Any(s => s.ServiceType == typeof(ITokenProvider)))
+        if (registerDefaultTokenProvider && !services.Any(s => s.ServiceType == typeof(ITokenProvider)))
         {
-            if (configuration != null && configuration.GetSection("SalesforceJwt").Exists())
+            if (configuration != null && configuration.GetSection(JwtTokenProviderOptions.SectionName).Exists())
             {
                 services.Configure<JwtTokenProviderOptions>(configuration.GetSection(JwtTokenProviderOptions.SectionName));
                 services.AddScoped<ITokenProvider, JwtTokenProvider>();
+                services.AddSalesforceBackgroundTokenRefresh();
             }
-            else if (configuration != null && configuration.GetSection("SalesforceClientCredentials").Exists())
+            else if (configuration != null && configuration.GetSection(ClientCredentialsOptions.SectionName).Exists())
             {
                 services.Configure<ClientCredentialsOptions>(configuration.GetSection(ClientCredentialsOptions.SectionName));
                 services.AddScoped<ITokenProvider, ClientCredentialsTokenProvider>();
+                services.AddSalesforceBackgroundTokenRefresh();
             }
-            // If SalesforceMvc is present, it registers its own provider via AddSalesforceCoreMvc -> AddSalesforceAuthentication
-            // If nothing is found, we don't register anything, trusting the consumer knows what they are doing
-            // or will call AddSalesforceAuthentication / AddSalesforceTokenProvider later.
-            // However, to be robust as requested, we could register a placeholder that throws a helpful error.
             else
             {
-                // Register a placeholder that throws a descriptive error if resolved
+                // Placeholder that throws a descriptive error if used before a real provider is registered.
                 services.AddScoped<ITokenProvider, MissingConfigurationTokenProvider>();
             }
         }
 
-        // Configure common HttpClient defaults
-        void ConfigureClient(HttpClient client)
+        // ---- HTTP pipeline -------------------------------------------------------------------------------
+        static void ConfigureClient(IServiceProvider sp, HttpClient client)
         {
-            client.DefaultRequestHeaders.Add("Accept", SalesforceConstants.Headers.ContentTypeJson);
-            client.DefaultRequestHeaders.Add("User-Agent", SalesforceConstants.Headers.UserAgent);
-            client.Timeout = options.HttpTimeout;
-            if (options.MaxResponseContentBufferSize > 0)
+            var o = sp.GetRequiredService<IOptions<SalesforceOptions>>().Value;
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(SalesforceConstants.Headers.UserAgent);
+            client.Timeout = o.HttpTimeout;
+            if (o.MaxResponseContentBufferSize > 0)
             {
-                client.MaxResponseContentBufferSize = options.MaxResponseContentBufferSize;
+                client.MaxResponseContentBufferSize = o.MaxResponseContentBufferSize;
             }
         }
 
-        // Register HTTP client with resilience (Polly)
-        services.AddHttpClient<ISalesforceClient, SalesforceClient>(ConfigureClient)
-        .AddStandardResilienceHandler(resilienceOptions =>
+        services.TryAddSingleton<ISalesforceApiUsage, SalesforceApiUsage>();
+        services.TryAddTransient<SalesforceApiUsageHandler>();
+        services.TryAddTransient<SalesforceLoggingHandler>();
+
+        if (!services.Any(d => d.ServiceType == typeof(SalesforceCoreMarker)))
         {
-            // Configure retry policy for transient errors and rate limits
-            // Note: 401 Unauthorized is intentionally EXCLUDED here because it requires token refresh logic
-            // which is handled manually in SalesforceClient.cs
-            resilienceOptions.Retry.ShouldHandle = args => ValueTask.FromResult(
-                args.Outcome.Result?.StatusCode is HttpStatusCode.InternalServerError
-                    or HttpStatusCode.BadGateway
-                    or HttpStatusCode.ServiceUnavailable
-                    or HttpStatusCode.GatewayTimeout
-                    or HttpStatusCode.RequestTimeout
-                    or HttpStatusCode.TooManyRequests // Handle Rate Limits via Polly
-                || args.Outcome.Exception is HttpRequestException);
+            services.AddSingleton<SalesforceCoreMarker>();
 
-            // Use configurable retry settings
-            resilienceOptions.Retry.MaxRetryAttempts = options.MaxRetries;
-            resilienceOptions.Retry.Delay = options.RetryBaseDelay;
-            resilienceOptions.Retry.BackoffType = DelayBackoffType.Exponential;
-            resilienceOptions.Retry.UseJitter = true;
+            var api = services.AddHttpClient<ISalesforceClient, SalesforceClient>(SalesforceHttpClientNames.Api, ConfigureClient);
+            api.AddStandardResilienceHandler().Configure((resilience, sp) => ConfigureResilience(resilience, sp.GetRequiredService<IOptions<SalesforceOptions>>().Value));
+            api.AddHttpMessageHandler<SalesforceLoggingHandler>();
+            api.AddHttpMessageHandler<SalesforceApiUsageHandler>();
+            // The standard resilience handler resets HttpClient.Timeout to infinite (it owns timeouts);
+            // re-apply HttpTimeout afterwards so it acts as an outer safety net as documented.
+            api.ConfigureHttpClient((sp, c) => c.Timeout = sp.GetRequiredService<IOptions<SalesforceOptions>>().Value.HttpTimeout);
 
-            // Use configurable circuit breaker settings
-            resilienceOptions.CircuitBreaker.SamplingDuration = options.CircuitBreakerSamplingDuration;
-            resilienceOptions.CircuitBreaker.BreakDuration = options.CircuitBreakerBreakDuration;
-            resilienceOptions.CircuitBreaker.MinimumThroughput = 5;
-            resilienceOptions.CircuitBreaker.FailureRatio = 0.5;
+            services.AddHttpClient(SalesforceHttpClientNames.Jwt, ConfigureClient).AddStandardResilienceHandler();
+            services.AddHttpClient(SalesforceHttpClientNames.ClientCredentials, ConfigureClient).AddStandardResilienceHandler();
+        }
 
-            // Use configurable total request timeout
-            resilienceOptions.TotalRequestTimeout.Timeout = options.TotalRequestTimeout;
-
-            // Use configurable per-attempt timeout (separate from total timeout)
-            // This controls the timeout for each individual HTTP request before Polly retries
-            resilienceOptions.AttemptTimeout.Timeout = options.PerAttemptTimeout;
-        });
-
-        // Register named clients for Token Providers with resilience
-        services.AddHttpClient("SalesforceJwt", ConfigureClient)
-            .AddStandardResilienceHandler();
-        services.AddHttpClient("SalesforceClientCredentials", ConfigureClient)
-            .AddStandardResilienceHandler();
-
-        // Register URL builder
-        services.AddScoped<ISalesforceUrlBuilder, SalesforceUrlBuilder>();
-
-        // Register services
-        services.AddScoped<ISchemaService, SchemaService>();
-        services.AddScoped<IDataService, DataService>();
-        services.AddScoped<ILookupService, LookupService>();
-        services.AddScoped<IConfigurationService, ConfigurationService>();
-
-        // Register batch and bulk services
-        services.AddScoped<ICompositeService, CompositeService>();
-        services.AddScoped<IBulkService, BulkService>();
-
-        // Register typed data service for strongly-typed operations with LINQ support
-        services.AddScoped<ITypedDataService, TypedDataService>();
-
-        // Register new API services
-        services.AddScoped<ISearchService, SearchService>();
-        services.AddScoped<IToolingService, ToolingService>();
-        services.AddScoped<IReplicationService, ReplicationService>();
-        services.AddScoped<IReportService, ReportService>();
-        services.AddScoped<ILimitsService, LimitsService>();
-
-        // Register file service
-        services.AddScoped<IFileService, FileService>();
-
-        // Register Apex REST service with resilience
-        services.AddHttpClient<IApexService, ApexService>()
-            .AddStandardResilienceHandler();
-
-        // Register Validation, Tracking, and Schema services
-        services.AddScoped<IFieldValidator, FieldValidator>();
-        services.AddScoped<IValidationRuleEngine, ValidationRuleEngine>();
-        services.AddScoped<IChangeTracker, ChangeTracker>();
-        services.AddScoped<IRecordTypeManager, RecordTypeManager>();
-
-        // Register Field Level Security service
-        services.AddScoped<IFieldLevelSecurityService, FieldLevelSecurityService>();
-
-        // Register default UserContextProvider if one is not already provided (ASP.NET overrides this)
+        // ---- Services ------------------------------------------------------------------------------------
+        services.TryAddScoped<ISalesforceUrlBuilder, SalesforceUrlBuilder>();
+        services.TryAddScoped<ISchemaService, SchemaService>();
+        services.TryAddScoped<IDataService, DataService>();
+        services.TryAddScoped<ILookupService, LookupService>();
+        services.TryAddScoped<IConfigurationService, ConfigurationService>();
+        services.TryAddScoped<ICompositeService, CompositeService>();
+        services.TryAddScoped<IBulkService, BulkService>();
+        services.TryAddScoped<ITypedDataService, TypedDataService>();
+        services.TryAddScoped<ISearchService, SearchService>();
+        services.TryAddScoped<IToolingService, ToolingService>();
+        services.TryAddScoped<IReplicationService, ReplicationService>();
+        services.TryAddScoped<IReportService, ReportService>();
+        services.TryAddScoped<ILimitsService, LimitsService>();
+        services.TryAddScoped<IFileService, FileService>();
+        services.TryAddScoped<IApexService, ApexService>();
+        services.TryAddScoped<IFieldValidator, FieldValidator>();
+        services.TryAddScoped<IValidationRuleEngine, ValidationRuleEngine>();
+        services.TryAddScoped<IChangeTracker, ChangeTracker>();
+        services.TryAddScoped<IRecordTypeManager, RecordTypeManager>();
         services.TryAddSingleton<IUserContextProvider, DefaultUserContextProvider>();
+        services.TryAddSingleton<ISynchronizationService, SynchronizationService>();
 
-        // Add synchronization service
-        services.AddSingleton<ISynchronizationService, SynchronizationService>();
-
-        // Register background token refresh service
-        services.AddHostedService<TokenRefreshBackgroundService>();
-
-        // Register Dynamic UI services (Permission and Layout)
         RegisterDynamicUiServices(services, configuration);
-
-        // Register Visibility services
-        RegisterVisibilityServices(services, configuration);
     }
+
+    internal static void ConfigureResilience(HttpStandardResilienceOptions resilienceOptions, SalesforceOptions options)
+    {
+        // 401 is excluded on purpose: it needs a token refresh, which SalesforceClient performs.
+        resilienceOptions.Retry.ShouldHandle = args => ValueTask.FromResult(
+            args.Outcome.Result?.StatusCode is HttpStatusCode.InternalServerError
+                or HttpStatusCode.BadGateway
+                or HttpStatusCode.ServiceUnavailable
+                or HttpStatusCode.GatewayTimeout
+                or HttpStatusCode.RequestTimeout
+                or HttpStatusCode.TooManyRequests
+            || args.Outcome.Exception is HttpRequestException);
+        resilienceOptions.Retry.MaxRetryAttempts = Math.Max(0, options.MaxRetries) == 0 ? 1 : options.MaxRetries;
+        if (options.MaxRetries == 0)
+        {
+            resilienceOptions.Retry.ShouldHandle = _ => ValueTask.FromResult(false);
+        }
+        resilienceOptions.Retry.Delay = options.RetryBaseDelay;
+        resilienceOptions.Retry.BackoffType = DelayBackoffType.Exponential;
+        resilienceOptions.Retry.UseJitter = true;
+        resilienceOptions.Retry.ShouldRetryAfterHeader = true;
+
+        // Polly requires SamplingDuration >= 2 x AttemptTimeout; 1.x shipped 30s/30s defaults which failed
+        // validation on the first HttpClient creation. Clamp so any PerAttemptTimeout yields a valid pipeline.
+        var minSampling = options.PerAttemptTimeout + options.PerAttemptTimeout;
+        resilienceOptions.CircuitBreaker.SamplingDuration =
+            options.CircuitBreakerSamplingDuration >= minSampling ? options.CircuitBreakerSamplingDuration : minSampling;
+        resilienceOptions.CircuitBreaker.BreakDuration = options.CircuitBreakerBreakDuration;
+        resilienceOptions.CircuitBreaker.MinimumThroughput = 5;
+        resilienceOptions.CircuitBreaker.FailureRatio = 0.5;
+
+        resilienceOptions.TotalRequestTimeout.Timeout = options.TotalRequestTimeout;
+        resilienceOptions.AttemptTimeout.Timeout = options.PerAttemptTimeout;
+    }
+
+    /// <summary>Marker preventing duplicate HttpClient pipeline registration when AddSalesforceCore is called twice.</summary>
+    private sealed class SalesforceCoreMarker { }
 
     /// <summary>
     /// Registers the Dynamic UI services for permission-aware rendering.
@@ -312,30 +300,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IDynamicUiConfigProvider, DynamicUiConfigProvider>();
 
         // Register Permission Service
-        services.AddScoped<IPermissionService, PermissionService>();
+        services.TryAddScoped<IPermissionService, PermissionService>();
 
-        // Register Permission Guard for fluent permission checks
-        services.AddScoped<IPermissionGuard, PermissionGuard>();
 
         // Register Layout Descriptor Service
-        services.AddScoped<ILayoutDescriptorService, LayoutDescriptorService>();
-    }
-
-    private static void RegisterVisibilityServices(IServiceCollection services, IConfiguration? configuration)
-    {
-        if (configuration != null)
-        {
-            services.Configure<VisibilityOptions>(
-                configuration.GetSection(VisibilityOptions.SectionName));
-        }
-        else
-        {
-             services.Configure<VisibilityOptions>(_ => { });
-        }
-
-        services.AddScoped<IVisibilityService, VisibilityService>();
-        services.AddScoped<IVisibilityRequirementHandler, Services.Authorization.Handlers.RoleHandler>();
-        services.AddScoped<IVisibilityRequirementHandler, Services.Authorization.Handlers.SalesforcePermissionHandler>();
+        services.TryAddScoped<ILayoutDescriptorService, LayoutDescriptorService>();
     }
 
     /// <summary>
@@ -387,7 +356,7 @@ public static class ServiceCollectionExtensions
             case Services.Caching.CacheProviderType.Memory:
                 // Default: in-memory cache
                 services.AddMemoryCache();
-                services.AddScoped<ICacheProvider, MemoryCacheProvider>();
+                services.TryAddScoped<ICacheProvider, MemoryCacheProvider>();
                 break;
 
             case Services.Caching.CacheProviderType.Distributed:
@@ -400,7 +369,7 @@ public static class ServiceCollectionExtensions
                         "Please register a distributed cache before calling AddSalesforceCore(). " +
                         "For example: services.AddStackExchangeRedisCache(...) or services.AddDistributedMemoryCache() for testing.");
                 }
-                services.AddScoped<ICacheProvider, DistributedCacheProvider>();
+                services.TryAddScoped<ICacheProvider, DistributedCacheProvider>();
                 break;
 
             case Services.Caching.CacheProviderType.SqlServer:
@@ -416,7 +385,7 @@ public static class ServiceCollectionExtensions
                         "  services.AddSalesforceEncryptedSqlServerCache(configuration);\n" +
                         "  services.AddSalesforceCore(configuration);");
                 }
-                services.AddScoped<ICacheProvider, DistributedCacheProvider>();
+                services.TryAddScoped<ICacheProvider, DistributedCacheProvider>();
                 break;
 
             default:

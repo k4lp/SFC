@@ -9,7 +9,7 @@ The `src/SalesforceCore.AspNetCore/TagHelpers` directory implements server-side 
 **Usage**: `<input sf-object="Account" sf-field="Name" />`
 **Logic**:
 1.  Looks up the field metadata for `Account.Name`.
-2.  Checks **Field Level Security (FLS)** via `IPermissionService`.
+2.  Reads the describe flags reported by Salesforce (no client-side gating).
 3.  **No Access**: Renders nothing (or a hidden input).
 4.  **Read Only**: Adds `readonly="readonly"` attribute.
 5.  **Edit**: Renders a standard input.

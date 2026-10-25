@@ -35,7 +35,7 @@ var namespaceOption = new Option<string>(
 
 var apiVersionOption = new Option<string>(
     aliases: ["--api-version", "-v"],
-    getDefaultValue: () => "v62.0",
+    getDefaultValue: () => SalesforceCore.SalesforceConstants.DefaultApiVersion,
     description: "Salesforce API version");
 
 // Generate command - generate models from Salesforce

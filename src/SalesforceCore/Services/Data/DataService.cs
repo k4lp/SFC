@@ -76,18 +76,22 @@ public class DataService : IDataService
         if (string.IsNullOrEmpty(nextRecordsUrl))
             throw new ArgumentException("nextRecordsUrl is required", nameof(nextRecordsUrl));
 
-        // The nextRecordsUrl is relative to the instance, extract just the path
-        var path = nextRecordsUrl;
-        if (nextRecordsUrl.Contains("/services/data/"))
+        // nextRecordsUrl is instance-relative (/services/data/vXX.X/query/01g...-2000). Pass /services/ paths through
+        // untouched (whatever API version Salesforce returned); only strip a scheme+host if one was supplied.
+        var path = nextRecordsUrl.Trim();
+        var idx = path.IndexOf("/services/", StringComparison.OrdinalIgnoreCase);
+        if (idx > 0)
         {
-            var idx = nextRecordsUrl.IndexOf("/services/data/", StringComparison.OrdinalIgnoreCase);
-            path = nextRecordsUrl.Substring(idx);
+            // Only a full absolute http(s) URL may be shortened to its path; anything else (e.g. "//host/...") is rejected.
+            if (!Uri.TryCreate(path, UriKind.Absolute, out var abs) || abs.Scheme is not ("https" or "http"))
+            {
+                throw new ArgumentException("Invalid nextRecordsUrl.", nameof(nextRecordsUrl));
+            }
+            path = path.Substring(idx);
         }
-
-        // Remove the API version prefix if present since the client will add it
-        if (path.StartsWith($"/services/data/{_options.ApiVersion}", StringComparison.OrdinalIgnoreCase))
+        if (path.Contains("..", StringComparison.Ordinal) || path.Contains('\\') || path.Contains("//", StringComparison.Ordinal))
         {
-            path = path.Substring($"/services/data/{_options.ApiVersion}".Length);
+            throw new ArgumentException("Invalid nextRecordsUrl.", nameof(nextRecordsUrl));
         }
 
         return await _client.GetAsync<QueryResult>(path, cancellationToken);
@@ -281,16 +285,10 @@ public class DataService : IDataService
         if (!SecurityUtils.IsValidObjectName(sObject))
             throw new ArgumentException($"Invalid object name: {sObject}", nameof(sObject));
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: true,
-            includeUpdateable: false,
-            cancellationToken);
 
         var payload = FilterPayload(
             sObject,
             data,
-            allowedFields,
             operation: "create",
             dropNullValues: true);
 
@@ -314,16 +312,10 @@ public class DataService : IDataService
         if (!SecurityUtils.IsValidObjectName(sObject))
             throw new ArgumentException($"Invalid object name: {sObject}", nameof(sObject));
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: false,
-            includeUpdateable: true,
-            cancellationToken);
 
         var payload = FilterPayload(
             sObject,
             data,
-            allowedFields,
             operation: "update",
             dropNullValues: false);
 
@@ -661,11 +653,6 @@ public class DataService : IDataService
         if (string.IsNullOrWhiteSpace(externalIdValue))
             throw new ArgumentException("externalIdValue is required", nameof(externalIdValue));
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: true,
-            includeUpdateable: true,
-            cancellationToken);
 
         var excludedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -675,7 +662,6 @@ public class DataService : IDataService
         var payload = FilterPayload(
             sObject,
             data,
-            allowedFields,
             operation: "upsert",
             dropNullValues: false,
             excludedFields: excludedFields);
@@ -795,16 +781,10 @@ public class DataService : IDataService
     {
         _logger.LogInformation("Using Bulk API to insert {Count} {Object} records", records.Count, sObject);
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: true,
-            includeUpdateable: false,
-            cancellationToken);
 
         var filteredRecords = FilterRecordBatch(
             sObject,
             records,
-            allowedFields,
             operation: "bulk insert",
             dropNullValues: true);
 
@@ -819,17 +799,10 @@ public class DataService : IDataService
     {
         _logger.LogInformation("Using Bulk API to update {Count} {Object} records", records.Count, sObject);
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: false,
-            includeUpdateable: true,
-            cancellationToken);
-        allowedFields.Add("Id"); // Id is required for updates
 
         var filteredRecords = FilterRecordBatch(
             sObject,
             records,
-            allowedFields,
             operation: "bulk update",
             dropNullValues: false);
 
@@ -845,17 +818,10 @@ public class DataService : IDataService
     {
         _logger.LogInformation("Using Bulk API to upsert {Count} {Object} records", records.Count, sObject);
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: true,
-            includeUpdateable: true,
-            cancellationToken);
-        allowedFields.Add(externalIdField);
 
         var filteredRecords = FilterRecordBatch(
             sObject,
             records,
-            allowedFields,
             operation: "bulk upsert",
             dropNullValues: false);
 
@@ -914,11 +880,6 @@ public class DataService : IDataService
     {
         _logger.LogDebug("Using sObject Collections to create {Count} {Object} records", records.Count, sObject);
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: true,
-            includeUpdateable: false,
-            cancellationToken);
 
         var payload = new
         {
@@ -926,7 +887,6 @@ public class DataService : IDataService
             records = FilterRecordBatch(
                 sObject,
                 records,
-                allowedFields,
                 operation: "composite create",
                 dropNullValues: true)
                 .Select(filtered =>
@@ -947,12 +907,6 @@ public class DataService : IDataService
     {
         _logger.LogDebug("Using sObject Collections to update {Count} {Object} records", records.Count, sObject);
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: false,
-            includeUpdateable: true,
-            cancellationToken);
-        allowedFields.Add("Id");
 
         var payload = new
         {
@@ -960,7 +914,6 @@ public class DataService : IDataService
             records = FilterRecordBatch(
                 sObject,
                 records,
-                allowedFields,
                 operation: "composite update",
                 dropNullValues: false)
                 .Select(filtered =>
@@ -982,11 +935,6 @@ public class DataService : IDataService
     {
         _logger.LogDebug("Using Composite API to upsert {Count} {Object} records", records.Count, sObject);
 
-        var allowedFields = await GetAllowedWriteFieldNamesAsync(
-            sObject,
-            includeCreateable: true,
-            includeUpdateable: true,
-            cancellationToken);
 
         // Composite API Request Builder
         var compositeRequest = new Models.Data.CompositeRequest
@@ -1013,7 +961,6 @@ public class DataService : IDataService
             var payload = FilterPayload(
                 sObject,
                 record,
-                allowedFields,
                 operation: "composite upsert",
                 dropNullValues: false,
                 excludedFields: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { externalIdField });
@@ -1187,236 +1134,60 @@ public class DataService : IDataService
 
     #region Helpers
 
-    private async Task<List<string>> SanitizeReadableFieldsAsync(
+    private static Task<List<string>> SanitizeReadableFieldsAsync(
         string sObject,
         IEnumerable<string> fields,
         CancellationToken cancellationToken)
     {
-        var sanitizedFields = await _schemaService.SanitizeFieldListAsync(sObject, fields, cancellationToken)
-            ?? new List<string>();
-
-        if (!_options.EnforceFieldLevelSecurity)
+        // 2.0: pass-through semantics. Field names are validated syntactically (SOQL injection guard) but are
+        // NOT filtered against describe/FLS: Salesforce decides what the caller can read and returns
+        // INVALID_FIELD (surfaced as SalesforceQueryException) when a field is not accessible.
+        _ = sObject;
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = new List<string>();
+        foreach (var field in fields ?? Enumerable.Empty<string>())
         {
-            return sanitizedFields;
+            if (string.IsNullOrWhiteSpace(field)) continue;
+            var trimmed = field.Trim();
+            if (!SecurityUtils.IsValidFieldName(trimmed))
+                throw new ArgumentException($"Invalid field name: {trimmed}", nameof(fields));
+            if (!result.Contains(trimmed, StringComparer.OrdinalIgnoreCase)) result.Add(trimmed);
         }
-
-        var flsFields = await _schemaService.SanitizeFieldListWithFlsAsync(sObject, sanitizedFields, cancellationToken);
-        var droppedFields = sanitizedFields.Except(flsFields, StringComparer.OrdinalIgnoreCase).ToList();
-        LogDroppedFields(sObject, droppedFields, "read");
-        return flsFields;
+        if (!result.Contains("Id", StringComparer.OrdinalIgnoreCase)) result.Insert(0, "Id");
+        return Task.FromResult(result);
     }
 
-    private async Task<HashSet<string>> GetAllowedWriteFieldNamesAsync(
-        string sObject,
-        bool includeCreateable,
-        bool includeUpdateable,
-        CancellationToken cancellationToken)
-    {
-        if (_options.EnforceFieldLevelSecurity)
-        {
-            var fields = new List<SObjectField>();
-
-            if (includeCreateable)
-            {
-                fields.AddRange(await _schemaService.GetCreateableFieldsAsync(sObject, cancellationToken));
-            }
-
-            if (includeUpdateable)
-            {
-                fields.AddRange(await _schemaService.GetUpdateableFieldsAsync(sObject, cancellationToken));
-            }
-
-            return fields.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
-
-        var allFields = await _schemaService.GetFieldsAsync(sObject, cancellationToken);
-        return allFields
-            .Where(IsWriteableField)
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static bool IsWriteableField(SObjectField field)
-    {
-        if (field.DeprecatedAndHidden)
-        {
-            return false;
-        }
-
-        if (field.Calculated || field.AutoNumber)
-        {
-            return false;
-        }
-
-        return !SalesforceConventions.NonCreateableFieldTypes.Contains(field.Type);
-    }
-
-    private Dictionary<string, object?> FilterPayload(
+    /// <summary>
+    /// Builds the request payload. 2.0: no field is ever dropped for permission reasons; Salesforce enforces
+    /// FLS and its error (e.g. INVALID_FIELD_FOR_INSERT_UPDATE) is surfaced to the caller.
+    /// Only structural exclusions (e.g. the external-id field in an upsert body) and optional null-dropping apply.
+    /// </summary>
+    private static Dictionary<string, object?> FilterPayload(
         string sObject,
         IDictionary<string, object?> data,
-        HashSet<string> allowedFields,
         string operation,
         bool dropNullValues,
         HashSet<string>? excludedFields = null)
     {
-        // If FLS is disabled or mode is None, bypass filtering entirely
-        if (!_options.EnforceFieldLevelSecurity || _options.FlsEnforcementMode == FlsEnforcementMode.None)
-        {
-            var bypass = new Dictionary<string, object?>();
-            foreach (var (key, value) in data)
-            {
-                if (excludedFields != null && excludedFields.Contains(key))
-                    continue;
-                if (dropNullValues && value == null)
-                    continue;
-                bypass[key] = value;
-            }
-            return bypass;
-        }
-
+        _ = sObject; _ = operation;
+        ArgumentNullException.ThrowIfNull(data);
         var payload = new Dictionary<string, object?>();
-        var droppedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         foreach (var (key, value) in data)
         {
-            if (excludedFields != null && excludedFields.Contains(key))
-            {
-                continue;
-            }
-
-            if (!allowedFields.Contains(key))
-            {
-                droppedFields.Add(key);
-                continue;
-            }
-
-            if (dropNullValues && value == null)
-            {
-                continue;
-            }
-
+            if (excludedFields != null && excludedFields.Contains(key)) continue;
+            if (dropNullValues && value == null) continue;
             payload[key] = value;
         }
-
-        // In Strict mode, throw an exception if any fields were dropped
-        if (_options.FlsEnforcementMode == FlsEnforcementMode.Strict && droppedFields.Count > 0)
-        {
-            var flsOperation = operation.Equals("create", StringComparison.OrdinalIgnoreCase)
-                ? FlsOperation.Create
-                : FlsOperation.Update;
-
-            var violations = droppedFields.Select(f => new FlsViolation(
-                f,
-                f,
-                flsOperation,
-                $"Field '{f}' is not accessible for {operation} on {sObject}.")).ToList();
-
-            throw new FlsException(violations);
-        }
-
-        LogDroppedFields(sObject, droppedFields, operation);
         return payload;
     }
 
-    private List<Dictionary<string, object?>> FilterRecordBatch(
+    private static List<Dictionary<string, object?>> FilterRecordBatch(
         string sObject,
         IEnumerable<IDictionary<string, object?>> records,
-        HashSet<string> allowedFields,
         string operation,
         bool dropNullValues,
         HashSet<string>? excludedFields = null)
-    {
-        var result = new List<Dictionary<string, object?>>();
-
-        // If FLS is disabled or mode is None, bypass filtering entirely
-        if (!_options.EnforceFieldLevelSecurity || _options.FlsEnforcementMode == FlsEnforcementMode.None)
-        {
-            foreach (var record in records)
-            {
-                var bypass = new Dictionary<string, object?>();
-                foreach (var (key, value) in record)
-                {
-                    if (excludedFields != null && excludedFields.Contains(key))
-                        continue;
-                    if (dropNullValues && value == null)
-                        continue;
-                    bypass[key] = value;
-                }
-                result.Add(bypass);
-            }
-            return result;
-        }
-
-        var droppedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var record in records)
-        {
-            var payload = new Dictionary<string, object?>();
-
-            foreach (var (key, value) in record)
-            {
-                if (excludedFields != null && excludedFields.Contains(key))
-                {
-                    continue;
-                }
-
-                if (!allowedFields.Contains(key))
-                {
-                    droppedFields.Add(key);
-                    continue;
-                }
-
-                if (dropNullValues && value == null)
-                {
-                    continue;
-                }
-
-                payload[key] = value;
-            }
-
-            result.Add(payload);
-        }
-
-        // In Strict mode, throw an exception if any fields were dropped
-        if (_options.FlsEnforcementMode == FlsEnforcementMode.Strict && droppedFields.Count > 0)
-        {
-            var flsOperation = operation.Contains("insert", StringComparison.OrdinalIgnoreCase)
-                ? FlsOperation.Create
-                : FlsOperation.Update;
-
-            var violations = droppedFields.Select(f => new FlsViolation(
-                f,
-                f,
-                flsOperation,
-                $"Field '{f}' is not accessible for {operation} on {sObject}.")).ToList();
-
-            throw new FlsException(violations);
-        }
-
-        LogDroppedFields(sObject, droppedFields, operation);
-        return result;
-    }
-
-    private void LogDroppedFields(string sObject, IEnumerable<string> droppedFields, string operation)
-    {
-        var droppedList = droppedFields
-            .Where(field => !string.IsNullOrWhiteSpace(field))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (droppedList.Count == 0)
-        {
-            return;
-        }
-
-        var reason = _options.EnforceFieldLevelSecurity ? "FLS enforcement" : "schema validation";
-        _logger.LogWarning(
-            "Fields dropped during {Operation} for {SObject} due to {Reason}: {Fields}",
-            operation,
-            sObject,
-            reason,
-            string.Join(", ", droppedList));
-    }
+        => records.Select(r => FilterPayload(sObject, r, operation, dropNullValues, excludedFields)).ToList();
 
     #endregion
 

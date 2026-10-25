@@ -120,12 +120,11 @@ public class ScanFixesV130Tests
         public Mock<ISchemaService> Schema { get; } = new();
         public Mock<IDataService> Data { get; } = new();
         public Mock<IConfigurationService> Config { get; } = new();
-        public Mock<IVisibilityService> Visibility { get; } = new();
 
         public SalesforceController Build()
         {
-            var c = new SalesforceController(Schema.Object, Data.Object, Config.Object, Visibility.Object,
-                Options.Create(new SalesforceOptions { EnforceFieldLevelSecurity = false }),
+            var c = new SalesforceController(Schema.Object, Data.Object, Config.Object,
+                Options.Create(new SalesforceOptions()),
                 Options.Create(new SalesforceMvcOptions()),
                 NullLogger<SalesforceController>.Instance);
             var http = new DefaultHttpContext();
@@ -135,19 +134,6 @@ public class ScanFixesV130Tests
         }
     }
 
-    [Fact]
-    public async Task Details_EnforcesVisibilityPolicy()
-    {
-        var ctx = new Ctx();
-        ctx.Config.Setup(c => c.GetModuleConfigAsync("Account", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ModuleConfig { VisibilityPolicy = "AdminsOnly" });
-        ctx.Visibility.Setup(v => v.EvaluatePolicyAsync("AdminsOnly", It.IsAny<CancellationToken>())).ReturnsAsync(false);
-
-        var result = await ctx.Build().Details("Account", AccountId);
-
-        result.Should().BeOfType<NotFoundObjectResult>();
-        ctx.Data.Verify(d => d.GetRecordAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
 
     [Fact]
     public void SafeErrorMessage_HidesNonSalesforceExceptionDetails()
@@ -452,8 +438,6 @@ public class ScanFixesV130Tests
     {
         var schema = new Mock<ISchemaService>();
         schema.Setup(s => s.SanitizeFieldListAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<string> { "Name" });
-        schema.Setup(s => s.SanitizeFieldListWithFlsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<string> { "Name" });
         var ds = new DataService(Mock.Of<ISalesforceClient>(), schema.Object, Mock.Of<IBulkService>(), Mock.Of<ICacheProvider>(), Options.Create(new SalesforceOptions()), NullLogger<DataService>.Instance);
         var act = () => ds.QueryPagedAsync("Account", new[] { "Name" }, null, null, false, int.MaxValue, 200);

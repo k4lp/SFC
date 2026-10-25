@@ -12,7 +12,6 @@ using SalesforceCore.Models.Configuration;
 using SalesforceCore.Models.Data;
 using SalesforceCore.Models.Metadata;
 using SalesforceCore.Services.Authorization;
-using SalesforceCore.Services.Authorization.Handlers;
 using SalesforceCore.Services.Caching;
 using SalesforceCore.Services.Core;
 using SalesforceCore.Services.Data;
@@ -120,131 +119,6 @@ public class EndToEndSecurityTests
 
     #endregion
 
-    #region Authorization Pipeline Tests
-
-    [Fact]
-    public async Task VisibilityService_Pipeline_ShouldEvaluateComplexPolicies()
-    {
-        // Arrange - full visibility pipeline setup
-        var options = Options.Create(new VisibilityOptions
-        {
-            Policies = new Dictionary<string, VisibilityPolicy>
-            {
-                ["AdminOrManager"] = new VisibilityPolicy
-                {
-                    Strategy = "Any", // OR logic
-                    Requirements = new List<VisibilityRequirementConfig>
-                    {
-                        new() { Type = "Role", Settings = JsonNode.Parse("{\"Role\":\"Admin\"}")!.AsObject() },
-                        new() { Type = "Role", Settings = JsonNode.Parse("{\"Role\":\"Manager\"}")!.AsObject() }
-                    }
-                },
-                ["AdminAndSalesforce"] = new VisibilityPolicy
-                {
-                    Strategy = "All", // AND logic
-                    Requirements = new List<VisibilityRequirementConfig>
-                    {
-                        new() { Type = "Role", Settings = JsonNode.Parse("{\"Role\":\"Admin\"}")!.AsObject() },
-                        new() { Type = "Role", Settings = JsonNode.Parse("{\"Role\":\"SalesforceUser\"}")!.AsObject() }
-                    }
-                }
-            }
-        });
-
-        var handlers = new List<IVisibilityRequirementHandler> { new RoleHandler() };
-        var userProvider = new Mock<IUserContextProvider>();
-
-        // User with Admin role only
-        var adminUser = new ClaimsPrincipal(new ClaimsIdentity(new[]
-        {
-            new Claim(ClaimTypes.Name, "admin"),
-            new Claim(ClaimTypes.Role, "Admin")
-        }, "test"));
-        userProvider.Setup(p => p.GetUser()).Returns(adminUser);
-
-        var service = new VisibilityService(
-            new OptionsWrapper<VisibilityOptions>(options.Value),
-            handlers,
-            userProvider.Object,
-            NullLogger<VisibilityService>.Instance);
-
-        // Act & Assert
-
-        // Admin should pass "AdminOrManager" (has Admin role)
-        var result1 = await service.EvaluatePolicyAsync("AdminOrManager");
-        result1.Should().BeTrue();
-
-        // Admin should FAIL "AdminAndSalesforce" (missing SalesforceUser role)
-        var result2 = await service.EvaluatePolicyAsync("AdminAndSalesforce");
-        result2.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task VisibilityService_Pipeline_ShouldHandleMissingPoliciesSecurely()
-    {
-        // Arrange
-        var options = Options.Create(new VisibilityOptions { Policies = new() });
-        var handlers = new List<IVisibilityRequirementHandler>();
-        var userProvider = new Mock<IUserContextProvider>();
-        userProvider.Setup(p => p.GetUser()).Returns(new ClaimsPrincipal());
-
-        var service = new VisibilityService(
-            new OptionsWrapper<VisibilityOptions>(options.Value),
-            handlers,
-            userProvider.Object,
-            NullLogger<VisibilityService>.Instance);
-
-        // Act - request a policy that doesn't exist
-        var result = await service.EvaluatePolicyAsync("NonExistentPolicy");
-
-        // Assert - should fail securely (default deny)
-        result.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task VisibilityService_Pipeline_ShouldPassCancellationTokenToHandlers()
-    {
-        // Arrange - verify cancellation token is passed correctly to handlers
-        var options = Options.Create(new VisibilityOptions
-        {
-            Policies = new Dictionary<string, VisibilityPolicy>
-            {
-                ["TestPolicy"] = new VisibilityPolicy
-                {
-                    Requirements = new List<VisibilityRequirementConfig>
-                    {
-                        new() { Type = "Test", Settings = new JsonObject() }
-                    }
-                }
-            }
-        });
-
-        CancellationToken capturedToken = default;
-        var testHandler = new Mock<IVisibilityRequirementHandler>();
-        testHandler.Setup(h => h.Type).Returns("Test");
-        testHandler.Setup(h => h.HandleAsync(It.IsAny<JsonObject>(), It.IsAny<ClaimsPrincipal>(), It.IsAny<CancellationToken>()))
-            .Callback<JsonObject, ClaimsPrincipal, CancellationToken>((_, _, ct) => capturedToken = ct)
-            .ReturnsAsync(true);
-
-        var handlers = new List<IVisibilityRequirementHandler> { testHandler.Object };
-        var userProvider = new Mock<IUserContextProvider>();
-        userProvider.Setup(p => p.GetUser()).Returns(new ClaimsPrincipal(new ClaimsIdentity("test")));
-
-        var service = new VisibilityService(
-            new OptionsWrapper<VisibilityOptions>(options.Value),
-            handlers,
-            userProvider.Object,
-            NullLogger<VisibilityService>.Instance);
-
-        // Act
-        using var cts = new CancellationTokenSource();
-        await service.EvaluatePolicyAsync("TestPolicy", cts.Token);
-
-        // Assert - cancellation token should be passed to handler
-        capturedToken.Should().Be(cts.Token);
-    }
-
-    #endregion
 
     #region Caching Security Pipeline Tests
 
@@ -330,8 +204,6 @@ public class EndToEndSecurityTests
             .ReturnsAsync(new List<SObjectField> { new() { Name = "Id" }, new() { Name = "Name" } });
         mockSchema.Setup(s => s.SanitizeFieldListAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, IEnumerable<string> fields, CancellationToken _) => fields.ToList());
-        mockSchema.Setup(s => s.SanitizeFieldListWithFlsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string _, IEnumerable<string> fields, CancellationToken _) => fields.ToList());
 
         var options = Options.Create(new SalesforceOptions());
         var dataService = new DataService(mockClient.Object, mockSchema.Object, mockBulk.Object, cacheProvider, options, NullLogger<DataService>.Instance);
@@ -385,77 +257,6 @@ public class EndToEndSecurityTests
 
     #endregion
 
-    #region Field-Level Security Pipeline Tests
-
-    [Fact]
-    public async Task FieldLevelSecurity_Pipeline_ShouldEnforceOnCreate()
-    {
-        // Arrange
-        var mockSchema = new Mock<ISchemaService>();
-        mockSchema.Setup(s => s.GetFieldMapAsync("Account", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<string, SObjectField>
-            {
-                ["Name"] = new() { Name = "Name", Createable = true, Label = "Account Name" },
-                ["Industry"] = new() { Name = "Industry", Createable = true, Label = "Industry" },
-                ["Rating"] = new() { Name = "Rating", Createable = false, Label = "Rating" },
-                ["SystemModstamp"] = new() { Name = "SystemModstamp", Createable = false, Label = "System Modstamp" }
-            });
-
-        var flsService = new Security.FieldLevelSecurityService(mockSchema.Object);
-
-        // Act
-        var inputFields = new Dictionary<string, object?>
-        {
-            ["Name"] = "Test Account",
-            ["Industry"] = "Technology",
-            ["Rating"] = "Hot", // Should be filtered out
-            ["SystemModstamp"] = DateTime.UtcNow // Should be filtered out
-        };
-
-        var result = await flsService.FilterCreateableFieldsAsync("Account", inputFields);
-
-        // Assert
-        result.Should().ContainKey("Name");
-        result.Should().ContainKey("Industry");
-        result.Should().NotContainKey("Rating");
-        result.Should().NotContainKey("SystemModstamp");
-    }
-
-    [Fact]
-    public async Task FieldLevelSecurity_Pipeline_ShouldEnforceOnQuery()
-    {
-        // Arrange
-        var mockSchema = new Mock<ISchemaService>();
-        mockSchema.Setup(s => s.GetFieldMapAsync("Account", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<string, SObjectField>
-            {
-                ["Id"] = new() { Name = "Id", Accessible = true },
-                ["Name"] = new() { Name = "Name", Accessible = true },
-                ["Industry"] = new() { Name = "Industry", Accessible = true },
-                ["SensitiveField__c"] = new() { Name = "SensitiveField__c", Accessible = false }
-            });
-
-        var flsService = new Security.FieldLevelSecurityService(mockSchema.Object);
-
-        // Act
-        var inputRecord = new Dictionary<string, object?>
-        {
-            ["Id"] = "001xxx",
-            ["Name"] = "Test",
-            ["Industry"] = "Tech",
-            ["SensitiveField__c"] = "secret"
-        };
-
-        var result = await flsService.FilterReadableFieldsAsync("Account", inputRecord);
-
-        // Assert
-        result.Should().ContainKey("Id");
-        result.Should().ContainKey("Name");
-        result.Should().ContainKey("Industry");
-        result.Should().NotContainKey("SensitiveField__c");
-    }
-
-    #endregion
 
     #region Input Validation Pipeline Tests
 

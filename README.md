@@ -55,6 +55,10 @@
 
 ---
 
+> **2.0.0** is a breaking release: no access gating (Salesforce enforces CRUD/FLS), a dependency-free
+> `SalesforceCore.Abstractions` package, an optional `SalesforceCore.SqlServer` package, a single composable HTTP pipeline,
+> typed errors and a valid default resilience pipeline. Upgrading from 1.x: see [MIGRATION.md](MIGRATION.md) and [CHANGELOG.md](CHANGELOG.md).
+
 ## Introduction
 
 SalesforceCore is a comprehensive .NET library designed to provide seamless integration with Salesforce CRM. Built from the ground up for .NET 10 and leveraging the latest ASP.NET Core features, it offers a modern, type-safe approach to Salesforce development that eliminates the pain points of traditional integration approaches.
@@ -69,7 +73,7 @@ SalesforceCore is a comprehensive .NET library designed to provide seamless inte
 
 4. **Performance at Scale**: Processing large datasets through the standard REST API is slow. SalesforceCore integrates Bulk API 2.0 and Composite APIs for massive throughput.
 
-5. **Field-Level Security**: Enforcing Salesforce FLS in custom applications is often overlooked. SalesforceCore automatically enforces FLS on all read and write operations.
+5. **Salesforce stays the source of truth for access**: SalesforceCore does not re-implement CRUD/FLS/sharing. Requests run as the authenticated user, Salesforce decides, and every refusal comes back as a typed exception (`SalesforceFieldSecurityException`, `SalesforcePermissionException`, ...).
 
 6. **Dynamic UI Generation**: Building permission-aware UIs that respect Salesforce metadata is tedious. SalesforceCore's Dynamic UI system generates forms, lists, and navigation automatically.
 
@@ -220,7 +224,7 @@ SalesforceCore follows a layered architecture designed for extensibility and tes
 │  ┌──────────────────────┐ ┌──────────────────────────────────────┐ │
 │  │  PermissionService   │ │      LayoutDescriptorService         │ │
 │  │  - CRUD checks       │ │      - Navigation                    │ │
-│  │  - FLS evaluation    │ │      - Forms                         │ │
+│  │  - Describe flags    │ │      - Forms                         │ │
 │  │  - Batch permissions │ │      - Lists                         │ │
 │  └──────────────────────┘ │      - Details                       │ │
 │                           └──────────────────────────────────────┘ │
@@ -669,8 +673,8 @@ public class Account
 
 | Feature | Description |
 |---------|-------------|
-| **Permission Service** | CRUD and FLS permission checks |
-| **Navigation Generator** | Permission-aware navigation menus |
+| **Permission Service** | Reads user permission metadata from Salesforce (informational) |
+| **Navigation Generator** | Navigation menus from configuration and metadata |
 | **Form Descriptors** | Dynamic form generation from metadata |
 | **List Descriptors** | Dynamic list/table generation |
 | **Detail Descriptors** | Dynamic detail views with related lists |
@@ -682,7 +686,8 @@ public class Account
 |---------|-------------|
 | **OAuth 2.0 PKCE** | Secure web authentication flow |
 | **JWT Bearer** | Server-to-server authentication |
-| **Field-Level Security** | Automatic FLS enforcement with configurable modes (Silent/Strict/None) |
+| **Typed errors** | Salesforce error codes mapped to exception types with `RequestId`, `Errors`, `IsTransient`, `RetryAfter` |
+| **Extensible HTTP pipeline** | `AddSalesforceHttpHandler<T>()`, `ConfigureSalesforceHttpClient(...)`, raw `SendAsync(SalesforceRequest)` |
 | **SOQL Injection Prevention** | Input sanitization |
 | **Rate Limit Handling** | Automatic retry with backoff |
 | **Distributed Locking** | Prevent concurrent operations |
@@ -706,7 +711,9 @@ Each release ships these packages:
 
 | Package | Purpose |
 |---|---|
-| `SalesforceCore.<version>.nupkg` (+ `.snupkg` symbols) | Core library: auth, REST/Composite/Bulk 2.0, LINQ-to-SOQL, schema, caching, security |
+| `SalesforceCore.Abstractions.<version>.nupkg` | Dependency-free contracts: `ISalesforceClient`, `SalesforceRequest`/`SalesforceResponse`, typed exceptions, `SalesforceApiVersion`, `QueryResult` |
+| `SalesforceCore.<version>.nupkg` (+ `.snupkg` symbols) | Core library: auth, REST/Composite/Bulk 2.0, LINQ-to-SOQL, schema, caching, HTTP pipeline |
+| `SalesforceCore.SqlServer.<version>.nupkg` | Optional SQL Server token/schema cache and `sp_getapplock` lock provider (EF Core SqlServer dependency lives here only) |
 | `SalesforceCore.AspNetCore.<version>.nupkg` | ASP.NET Core DI extensions, controller, tag helpers |
 | `SalesforceCore.ModelGenerator.<version>.nupkg` | `dotnet tool` that generates typed models from your org |
 
@@ -715,9 +722,10 @@ Each release ships these packages:
 ```bash
 mkdir -p ~/nuget-local && cp SalesforceCore*.nupkg ~/nuget-local/
 dotnet nuget add source ~/nuget-local --name sfc-local
-dotnet add package SalesforceCore --version 1.1.0 --source sfc-local
-dotnet add package SalesforceCore.AspNetCore --version 1.1.0 --source sfc-local
-dotnet tool install --global SalesforceCore.ModelGenerator --version 1.1.0 --add-source ~/nuget-local
+dotnet add package SalesforceCore --version 2.0.0 --source sfc-local
+dotnet add package SalesforceCore.AspNetCore --version 2.0.0 --source sfc-local
+dotnet add package SalesforceCore.SqlServer --version 2.0.0 --source sfc-local   # optional
+dotnet tool install --global SalesforceCore.ModelGenerator --version 2.0.0 --add-source ~/nuget-local
 ```
 
 Because nuget.org also has a package with the id `SalesforceCore`, add a `nuget.config` with
@@ -912,7 +920,6 @@ Add configuration to `appsettings.json`:
     "CacheProvider": "Distributed",
     "CacheKeyPrefix": "SF_",
     "SchemaCacheDuration": "01:00:00",
-    "EnforceFieldLevelSecurity": true,
     "ValidateSoqlInputs": true
   },
   "DynamicUi": {
@@ -1196,7 +1203,6 @@ builder.Services.AddSalesforceCore(builder.Configuration);
 | `DefaultPageSize` | int | `25` | Default pagination size for list views and QueryPaged |
 | `MaxPageSize` | int | `100` | Maximum pagination size |
 | `EnableDebugLogging` | bool | `false` | Verbose HTTP logging |
-| `EnforceFieldLevelSecurity` | bool | `true` | Filter read fields and write payloads using Salesforce FLS |
 | `ValidateSoqlInputs` | bool | `true` | Validate raw SOQL (SELECT-only, no comment tokens) |
 | `MaxFileUploadSize` | long | `26214400` | Max file size in bytes (default: 25 MB). |
 
@@ -1443,7 +1449,7 @@ Scaffolds a complete form based on model metadata:
 
 2. **Leverage Caching**: Enable distributed caching in production to reduce API calls and improve performance.
 
-3. **Enforce FLS**: Keep `EnforceFieldLevelSecurity` enabled to respect Salesforce security model.
+3. **Let Salesforce enforce access**: catch `SalesforceFieldSecurityException`/`SalesforcePermissionException` and show the message; do not hide fields client-side as a security measure.
 
 4. **Use Bulk API for Large Operations**: For operations involving more than 200 records, use the Bulk API instead of individual DML.
 
@@ -1470,7 +1476,8 @@ Scaffolds a complete form based on model metadata:
 | [06-Schema-Service.md](docs/06-Schema-Service.md) | Metadata introspection |
 | [07-Bulk-Composite-Services.md](docs/07-Bulk-Composite-Services.md) | High-volume operations |
 | [08-Model-Generator-CLI.md](docs/08-Model-Generator-CLI.md) | CLI tool reference |
-| [09-Security.md](docs/09-Security.md) | Security and FLS |
+| [09-Security.md](docs/09-Security.md) | Security |
+| [18-Extensibility-and-Pipeline.md](docs/18-Extensibility-and-Pipeline.md) | 2.0 composition, HTTP pipeline, raw requests, typed errors |
 | [10-API-Reference.md](docs/10-API-Reference.md) | Complete API reference |
 | [11-Additional-Services.md](docs/11-Additional-Services.md) | Files, Reports, Tooling |
 | [12-Tutorial-MVC-CRUD-App.md](docs/12-Tutorial-MVC-CRUD-App.md) | Step-by-step MVC tutorial |
@@ -1480,16 +1487,12 @@ Scaffolds a complete form based on model metadata:
 | [15-Tag-Helpers.md](docs/15-Tag-Helpers.md) | Tag helper reference |
 | [16-Backbone-Infrastructure.md](docs/16-Backbone-Infrastructure.md) | Infrastructure details |
 | [17-Dynamic-UI-System.md](docs/17-Dynamic-UI-System.md) | Dynamic UI complete guide |
-| [18-Visibility-System-Overview.md](docs/18-Visibility-System-Overview.md) | Visibility system overview |
-| [19-Visibility-Handlers-Reference.md](docs/19-Visibility-Handlers-Reference.md) | Visibility handler reference |
-| [20-Visibility-UI-Integration.md](docs/20-Visibility-UI-Integration.md) | Visibility UI integration |
-| [21-Visibility-Extensibility.md](docs/21-Visibility-Extensibility.md) | Extending the visibility system |
 
 ---
 
 ## Security
 
-SalesforceCore 1.3.0 ships with secure defaults (see `docs/security/SFC_Security_Scan_Report.md` for the full 1.3.0 audit). Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+SalesforceCore 2.0.0 ships with secure defaults (see `docs/security/SFC_Security_Scan_Report.md` for the 1.3.0 audit; 2.0 removes access gating, keeps all attacker-facing protections and adds path validation for Apex/Bulk/nextRecordsUrl). Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 | Protection | Default | Opt-out / tuning |
 |---|---|---|
@@ -1541,11 +1544,11 @@ dotnet test tests/SalesforceCore.Tests
 dotnet test --filter "FullyQualifiedName~EndToEnd|FullyQualifiedName~HttpPipeline"
 ```
 
-The suite (556 tests) runs fully **offline**: no Salesforce org or credentials are needed.
+The suite (781 tests) runs fully **offline**: no Salesforce org or credentials are needed.
 End-to-end tests drive the real `SalesforceClient` / `DataService` through a fake `HttpMessageHandler`
 that emulates Salesforce REST responses (URL building, JSON serialization, error-array and OAuth error
 mapping, 401 → token refresh → retry, pagination via `nextRecordsUrl`, 204 No Content handling,
-binary/stream/raw endpoints, composite batch create/delete, FLS write filtering).
+binary/stream/raw endpoints, composite batch create/delete, Bulk 2.0 ingest lifecycle, Apex REST, resilience pipeline validation).
 
 ### Building packages
 

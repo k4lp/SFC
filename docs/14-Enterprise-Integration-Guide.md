@@ -225,8 +225,6 @@ app.Run();
 ├─────────────────────────────────────────────────────────────────┤
 │                    Authorization Layer                            │
 │   • Salesforce Profile/Permission Set restrictions               │
-│   • Field-Level Security (FLS) enforcement                       │
-│   • Visibility policies for UI elements                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                    Data Layer                                     │
 │   • SOQL injection prevention (SoqlBuilder/SoqlCondition)        │
@@ -310,7 +308,6 @@ Salesforce Connected App Checklist:
 // appsettings.Production.json - Security Hardening
 {
   "Salesforce": {
-    "EnforceFieldLevelSecurity": true,
     "ValidateSoqlInputs": true,
     "ForceSecureCookie": true,
     "SessionCookieName": "__Host-SalesforceSession",
@@ -962,7 +959,6 @@ else
 - [ ] Connected App scopes minimized
 - [ ] IP restrictions configured
 - [ ] Certificate expiry checked (JWT)
-- [ ] FLS enforcement enabled
 
 ### Infrastructure
 - [ ] Redis cluster healthy
