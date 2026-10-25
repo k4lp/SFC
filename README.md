@@ -700,14 +700,42 @@ public class Account
 
 ### NuGet Packages
 
-SalesforceCore packages are **not yet published to NuGet**. Reference the projects directly while developing against this repository:
+> **⚠️ Name clash:** the package called `SalesforceCore` on nuget.org is **a different, unrelated library** owned by someone else. Do **not** run `dotnet add package SalesforceCore` from nuget.org expecting this project. Install the packages from this repository's [GitHub Releases](https://github.com/k4lp/SFC/releases) instead.
+
+Each release ships these packages:
+
+| Package | Purpose |
+|---|---|
+| `SalesforceCore.<version>.nupkg` (+ `.snupkg` symbols) | Core library: auth, REST/Composite/Bulk 2.0, LINQ-to-SOQL, schema, caching, security |
+| `SalesforceCore.AspNetCore.<version>.nupkg` | ASP.NET Core DI extensions, controller, tag helpers |
+| `SalesforceCore.ModelGenerator.<version>.nupkg` | `dotnet tool` that generates typed models from your org |
+
+**Install from a downloaded release (local feed):**
+
+```bash
+mkdir -p ~/nuget-local && cp SalesforceCore*.nupkg ~/nuget-local/
+dotnet nuget add source ~/nuget-local --name sfc-local
+dotnet add package SalesforceCore --version 1.1.0 --source sfc-local
+dotnet add package SalesforceCore.AspNetCore --version 1.1.0 --source sfc-local
+dotnet tool install --global SalesforceCore.ModelGenerator --version 1.1.0 --add-source ~/nuget-local
+```
+
+Because nuget.org also has a package with the id `SalesforceCore`, add a `nuget.config` with
+[package source mapping](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping) so restores never pull the wrong one:
+
+```xml
+<packageSourceMapping>
+  <packageSource key="sfc-local"><package pattern="SalesforceCore*" /></packageSource>
+  <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+</packageSourceMapping>
+```
+
+**Or reference the source projects directly:**
 
 ```bash
 dotnet add reference /path/to/SFC/src/SalesforceCore/SalesforceCore.csproj
 dotnet add reference /path/to/SFC/src/SalesforceCore.AspNetCore/SalesforceCore.AspNetCore.csproj
 ```
-
-> **Note:** Adjust the relative paths above for your application. The project files are the authoritative dependency list.
 
 ### Connected App Setup
 
@@ -1466,8 +1494,8 @@ We welcome contributions. Please open an issue to discuss substantial changes, t
 ### Development Setup
 
 ```bash
-git clone https://github.com/k4lp/SalesforceCore.git
-cd SalesforceCore
+git clone https://github.com/k4lp/SFC.git
+cd SFC
 dotnet restore
 dotnet build
 dotnet test
@@ -1484,6 +1512,21 @@ dotnet test --collect:"XPlat Code Coverage"
 
 # Run specific test project
 dotnet test tests/SalesforceCore.Tests
+
+# Only the offline end-to-end / HTTP pipeline suites
+dotnet test --filter "FullyQualifiedName~EndToEnd|FullyQualifiedName~HttpPipeline"
+```
+
+The suite (556 tests) runs fully **offline**: no Salesforce org or credentials are needed.
+End-to-end tests drive the real `SalesforceClient` / `DataService` through a fake `HttpMessageHandler`
+that emulates Salesforce REST responses (URL building, JSON serialization, error-array and OAuth error
+mapping, 401 → token refresh → retry, pagination via `nextRecordsUrl`, 204 No Content handling,
+binary/stream/raw endpoints, composite batch create/delete, FLS write filtering).
+
+### Building packages
+
+```bash
+dotnet pack -c Release -o ./artifacts
 ```
 
 ---

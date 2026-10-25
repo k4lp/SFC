@@ -14,7 +14,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore.ModelGenerator</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore Model Generator</Product>
