@@ -4,8 +4,17 @@ namespace SalesforceCore.Models.Security;
 /// Represents a cached Salesforce authentication token.
 /// Used for sharing token state across multiple provider instances via distributed cache.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{ToString(),nq}")]
 public class CachedToken
 {
+    /// <summary>
+    /// Returns a description that never contains the access or refresh token.
+    /// </summary>
+    public override string ToString() =>
+        $"CachedToken {{ AccessToken = {(string.IsNullOrEmpty(AccessToken) ? "(none)" : SalesforceCore.Security.SensitiveDataRedactor.Redacted)}, " +
+        $"RefreshToken = {(string.IsNullOrEmpty(RefreshToken) ? "(none)" : SalesforceCore.Security.SensitiveDataRedactor.Redacted)}, " +
+        $"InstanceUrl = {InstanceUrl}, ExpiresAt = {ExpiresAt:O} }}";
+
     /// <summary>
     /// The OAuth 2.0 access token.
     /// </summary>

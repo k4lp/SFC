@@ -312,6 +312,29 @@ public class SalesforceOptions
     public TimeSpan PerAttemptTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     #endregion
+
+    #region Security
+
+    /// <summary>
+    /// When true (default), the <c>instance_url</c> returned by Salesforce (or read from a token cache/session)
+    /// and the login <see cref="Domain"/> must be HTTPS URLs on a Salesforce-owned host before any access token
+    /// is sent to them. Set to false only for local test doubles; this opts out of token-exfiltration protection.
+    /// </summary>
+    public bool ValidateInstanceUrl { get; set; } = true;
+
+    /// <summary>
+    /// Extra hosts trusted in addition to Salesforce domains (exact host, or a suffix beginning with '.').
+    /// Use for corporate egress proxies or custom domains that do not end in a Salesforce suffix.
+    /// </summary>
+    public string[] AdditionalAllowedHosts { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Maximum number of characters of a Salesforce error response body included in exception messages and logs.
+    /// Default: 2000.
+    /// </summary>
+    public int MaxErrorBodyLength { get; set; } = 2000;
+
+    #endregion
 }
 
 /// <summary>

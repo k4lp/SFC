@@ -73,8 +73,13 @@ public class DistributedCacheTokenProvider : ITokenProvider
         var sessionId = _httpContextAccessor.HttpContext?.Session?.Id;
         if (string.IsNullOrEmpty(sessionId))
         {
-            // Fallback to user identity if session is not available
-            var userId = _httpContextAccessor.HttpContext?.User?.Identity?.Name;
+            // Fallback to a stable, unique user identifier if session is not available.
+            // Prefer NameIdentifier/sub over Name: display names are not guaranteed unique and
+            // a collision would hand one user's Salesforce tokens to another.
+            var user = _httpContextAccessor.HttpContext?.User;
+            var userId = user?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? user?.FindFirst("sub")?.Value
+                         ?? (_options.AllowUserNameAsCacheKey ? user?.Identity?.Name : null);
             if (string.IsNullOrEmpty(userId))
             {
                 throw new InvalidOperationException(
@@ -215,6 +220,11 @@ public class DistributedCacheTokenProvider : ITokenProvider
         var cacheKey = GetCacheKey();
         var lockResource = $"sf_token_refresh:{cacheKey}";
 
+        // Remember which access token the caller was using. After acquiring the lock we only short-circuit
+        // when a *different* token is now cached (i.e. someone else really refreshed). Otherwise a 401 on a
+        // revoked-but-not-yet-expired token would be "refreshed" to the same rejected token.
+        var tokenBeforeLock = (await GetTokensAsync(cancellationToken))?.AccessToken;
+
         // Best-effort local lock (prevents duplicate refresh within a single process).
         var semaphore = _synchronizationService.GetLock(lockResource);
         await semaphore.WaitAsync(cancellationToken);
@@ -233,7 +243,8 @@ public class DistributedCacheTokenProvider : ITokenProvider
                 // Another server may have refreshed; re-check cache and return if valid.
                 var afterWait = await GetTokensAsync(cancellationToken);
                 if (afterWait != null && afterWait.ExpiresAt.HasValue &&
-                    afterWait.ExpiresAt.Value > DateTime.UtcNow.AddMinutes(5))
+                    afterWait.ExpiresAt.Value > DateTime.UtcNow.AddMinutes(5) &&
+                    !string.Equals(afterWait.AccessToken, tokenBeforeLock, StringComparison.Ordinal))
                 {
                     return afterWait.AccessToken;
                 }
@@ -242,7 +253,8 @@ public class DistributedCacheTokenProvider : ITokenProvider
             // Re-check token validity after acquiring lock
             var currentTokens = await GetTokensAsync(cancellationToken);
             if (currentTokens != null && currentTokens.ExpiresAt.HasValue &&
-                currentTokens.ExpiresAt.Value > DateTime.UtcNow.AddMinutes(5))
+                currentTokens.ExpiresAt.Value > DateTime.UtcNow.AddMinutes(5) &&
+                !string.Equals(currentTokens.AccessToken, tokenBeforeLock, StringComparison.Ordinal))
             {
                 // Token was refreshed by another thread while we waited
                 return currentTokens.AccessToken;
@@ -271,24 +283,44 @@ public class DistributedCacheTokenProvider : ITokenProvider
                 requestData["client_secret"] = _salesforceOptions.ClientSecret;
             }
 
+            if (_salesforceOptions.ValidateInstanceUrl &&
+                !SalesforceCore.Security.SalesforceUrlValidator.TryValidate(domain, _salesforceOptions.AdditionalAllowedHosts, out var domainReason))
+            {
+                _logger.LogError("Refusing to send refresh token to untrusted login domain: {Reason}", domainReason);
+                return null;
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint)
             {
                 Content = new FormUrlEncodedContent(requestData)
             };
 
-            var response = await client.SendAsync(request, cancellationToken);
+            using var response = await client.SendAsync(request, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Token refresh failed. Status: {StatusCode}, Content: {Content}", response.StatusCode, errorContent);
+                _logger.LogError("Token refresh failed. Status: {StatusCode}, Content: {Content}", response.StatusCode,
+                    SalesforceCore.Security.SensitiveDataRedactor.ForDiagnostics(errorContent, _salesforceOptions.MaxErrorBodyLength));
                 return null;
             }
 
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
 
-            var newAccessToken = json.GetProperty("access_token").GetString();
+            var newAccessToken = json.TryGetProperty("access_token", out var at) ? at.GetString() : null;
+            if (string.IsNullOrEmpty(newAccessToken))
+            {
+                _logger.LogError("Token refresh response did not contain an access token.");
+                return null;
+            }
+
             var instanceUrl = json.TryGetProperty("instance_url", out var instUrl) ? instUrl.GetString() : tokens.InstanceUrl;
+            if (_salesforceOptions.ValidateInstanceUrl &&
+                !SalesforceCore.Security.SalesforceUrlValidator.TryValidate(instanceUrl, _salesforceOptions.AdditionalAllowedHosts, out var instReason))
+            {
+                _logger.LogError("Token refresh returned an untrusted instance URL; discarding tokens. {Reason}", instReason);
+                return null;
+            }
 
             // Note: Refresh token might not be rotated, so keep existing if not returned
             // Usually Salesforce does not rotate refresh tokens unless configured
@@ -358,4 +390,10 @@ public class DistributedCacheTokenProviderOptions
     /// How long tokens should be cached. Default: 8 hours.
     /// </summary>
     public TimeSpan TokenExpiration { get; set; } = TimeSpan.FromHours(8);
+
+    /// <summary>
+    /// When no session is available, allow falling back to <c>User.Identity.Name</c> as the token cache key.
+    /// Default false: names are not guaranteed unique, so only NameIdentifier/<c>sub</c> claims are used.
+    /// </summary>
+    public bool AllowUserNameAsCacheKey { get; set; } = false;
 }

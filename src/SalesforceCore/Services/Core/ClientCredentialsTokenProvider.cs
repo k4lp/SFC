@@ -72,13 +72,17 @@ public class ClientCredentialsTokenProvider : ITokenProvider
     /// <inheritdoc/>
     public async Task<string?> RefreshTokenAsync(CancellationToken cancellationToken = default)
     {
+        // Token the caller saw before the lock: if it is still cached afterwards it was rejected (401),
+        // so we must re-authenticate instead of handing back the same token.
+        var tokenBeforeLock = (await _cacheProvider.GetAsync<CachedToken>(CacheKey, cancellationToken))?.AccessToken;
         var semaphore = _synchronizationService.GetLock(CacheKey);
         await semaphore.WaitAsync(cancellationToken);
 
         try
         {
             var cachedToken = await _cacheProvider.GetAsync<CachedToken>(CacheKey, cancellationToken);
-            if (cachedToken != null && !cachedToken.IsExpired(_expiryBuffer))
+            if (cachedToken != null && !cachedToken.IsExpired(_expiryBuffer) &&
+                !string.Equals(cachedToken.AccessToken, tokenBeforeLock, StringComparison.Ordinal))
             {
                 _logger.LogDebug("Token already refreshed by another thread.");
                 return cachedToken.AccessToken;
@@ -106,7 +110,14 @@ public class ClientCredentialsTokenProvider : ITokenProvider
                 ["token"] = token.AccessToken
             });
 
-            await httpClient.PostAsync($"{token.InstanceUrl}{SalesforceConstants.Paths.OAuthRevoke}", content, cancellationToken);
+            if (_salesforceOptions.ValidateInstanceUrl &&
+                !SalesforceCore.Security.SalesforceUrlValidator.IsAllowed(token.InstanceUrl, _salesforceOptions.AdditionalAllowedHosts))
+            {
+                _logger.LogWarning("Skipping token revocation: cached instance URL is not a trusted Salesforce host");
+                return;
+            }
+
+            using var revokeResponse = await httpClient.PostAsync($"{token.InstanceUrl.TrimEnd('/')}{SalesforceConstants.Paths.OAuthRevoke}", content, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -123,6 +134,14 @@ public class ClientCredentialsTokenProvider : ITokenProvider
     {
         var token = await _cacheProvider.GetAsync<CachedToken>(CacheKey, cancellationToken);
         return token != null && !token.IsExpired(TimeSpan.Zero);
+    }
+
+    private string ValidateReturnedInstanceUrl(string? instanceUrl)
+    {
+        if (string.IsNullOrEmpty(instanceUrl)) return string.Empty;
+        return _salesforceOptions.ValidateInstanceUrl
+            ? SalesforceCore.Security.SalesforceUrlValidator.EnsureAllowed(instanceUrl, _salesforceOptions.AdditionalAllowedHosts)
+            : instanceUrl;
     }
 
     private async Task<string> AuthenticateAsync(CancellationToken cancellationToken)
@@ -147,13 +166,18 @@ public class ClientCredentialsTokenProvider : ITokenProvider
             ["client_secret"] = clientSecret
         });
 
-        var response = await httpClient.PostAsync(tokenEndpoint, content, cancellationToken);
+        if (_salesforceOptions.ValidateInstanceUrl)
+        {
+            SalesforceCore.Security.SalesforceUrlValidator.EnsureAllowed(_salesforceOptions.Domain, _salesforceOptions.AdditionalAllowedHosts, "login domain");
+        }
+
+        using var response = await httpClient.PostAsync(tokenEndpoint, content, cancellationToken);
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("Client Credentials authentication failed: {StatusCode} - {Response}", response.StatusCode, responseContent);
-            throw new SalesforceAuthException($"Client Credentials authentication failed: {responseContent}");
+            _logger.LogError("Client Credentials authentication failed: {StatusCode} - {Response}", response.StatusCode, SalesforceCore.Security.SensitiveDataRedactor.ForDiagnostics(responseContent, _salesforceOptions.MaxErrorBodyLength));
+            throw new SalesforceAuthException($"Client Credentials authentication failed: {SalesforceCore.Security.SensitiveDataRedactor.ForDiagnostics(responseContent, _salesforceOptions.MaxErrorBodyLength)}");
         }
 
         var tokenResponse = JsonSerializer.Deserialize<ClientCredentialsTokenResponse>(responseContent, _jsonSerializerOptions);
@@ -171,7 +195,7 @@ public class ClientCredentialsTokenProvider : ITokenProvider
         var cachedToken = new CachedToken
         {
             AccessToken = tokenResponse.AccessToken,
-            InstanceUrl = tokenResponse.InstanceUrl ?? string.Empty,
+            InstanceUrl = ValidateReturnedInstanceUrl(tokenResponse.InstanceUrl),
             ExpiresAt = expiry
         };
 

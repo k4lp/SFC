@@ -100,7 +100,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
                 authenticateResult.Properties.Items.TryGetValue("instance_url", out var instanceUrl) &&
                 !string.IsNullOrEmpty(instanceUrl))
             {
-                return instanceUrl;
+                return instanceUrl; // validated by SalesforceClient before any token is sent
             }
 
             // PRIORITY 2: Try to get from tokens stored in authentication properties
@@ -150,7 +150,14 @@ public class AspNetCoreTokenProvider : ITokenProvider
                     new KeyValuePair<string, string>("token", accessToken)
                 });
 
-                await httpClient.PostAsync($"{instanceUrl}{SalesforceConstants.Paths.OAuthRevoke}", content, cancellationToken);
+                if (!_options.ValidateInstanceUrl || SalesforceCore.Security.SalesforceUrlValidator.IsAllowed(instanceUrl, _options.AdditionalAllowedHosts))
+                {
+                    using var revokeResponse = await httpClient.PostAsync($"{instanceUrl.TrimEnd('/')}{SalesforceConstants.Paths.OAuthRevoke}", content, cancellationToken);
+                }
+                else
+                {
+                    _logger.LogWarning("Skipping token revocation: instance URL is not a trusted Salesforce host");
+                }
             }
         }
         catch (Exception ex)
@@ -184,6 +191,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
         try
         {
             var authenticateResult = await HttpContext.AuthenticateAsync();
+            var rejectedAccessToken = authenticateResult?.Properties?.GetTokenValue("access_token");
             var refreshSessionKey = GetRefreshSessionKey(authenticateResult) ?? GetFallbackRefreshSessionKey();
 
             // Cross-server serialization (optional): if no provider is registered, we fall back to process-only locking.
@@ -200,7 +208,8 @@ public class AspNetCoreTokenProvider : ITokenProvider
 
                 // Another server may have completed refresh; try to read the latest snapshot from the coordinator cache.
                 var snapshot = await TryGetRefreshSnapshotAsync(refreshSessionKey, cancellationToken);
-                if (snapshot != null && authenticateResult?.Principal != null && authenticateResult.Properties != null)
+                if (snapshot != null && authenticateResult?.Principal != null && authenticateResult.Properties != null &&
+                    !string.Equals(snapshot.AccessToken, rejectedAccessToken, StringComparison.Ordinal))
                 {
                     await ApplyRefreshSnapshotAsync(authenticateResult, snapshot, cancellationToken);
                     return snapshot.AccessToken;
@@ -213,7 +222,8 @@ public class AspNetCoreTokenProvider : ITokenProvider
             if (!string.IsNullOrWhiteSpace(refreshSessionKey))
             {
                 var snapshot = await TryGetRefreshSnapshotAsync(refreshSessionKey, cancellationToken);
-                if (snapshot != null && authenticateResult?.Principal != null && authenticateResult.Properties != null)
+                if (snapshot != null && authenticateResult?.Principal != null && authenticateResult.Properties != null &&
+                    !string.Equals(snapshot.AccessToken, rejectedAccessToken, StringComparison.Ordinal))
                 {
                     await ApplyRefreshSnapshotAsync(authenticateResult, snapshot, cancellationToken);
                     return snapshot.AccessToken;
@@ -233,20 +243,32 @@ public class AspNetCoreTokenProvider : ITokenProvider
             var httpClient = _httpClientFactory.CreateClient("SalesforceTokenRefresh");
             var tokenEndpoint = $"{_options.Domain.TrimEnd('/')}{SalesforceConstants.Paths.OAuthToken}";
 
-            var requestContent = new FormUrlEncodedContent(new Dictionary<string, string>
+            if (_options.ValidateInstanceUrl &&
+                !SalesforceCore.Security.SalesforceUrlValidator.TryValidate(_options.Domain, _options.AdditionalAllowedHosts, out var domainReason))
+            {
+                _logger.LogError("Refusing to send refresh token to untrusted login domain: {Reason}", domainReason);
+                return null;
+            }
+
+            var form = new Dictionary<string, string>
             {
                 ["grant_type"] = SalesforceConstants.GrantTypes.RefreshToken,
                 ["refresh_token"] = refreshToken,
                 ["client_id"] = _options.ClientId
-            });
+            };
+            if (!string.IsNullOrEmpty(_options.ClientSecret))
+            {
+                form["client_secret"] = _options.ClientSecret;
+            }
+            var requestContent = new FormUrlEncodedContent(form);
 
-            var response = await httpClient.PostAsync(tokenEndpoint, requestContent, cancellationToken);
+            using var response = await httpClient.PostAsync(tokenEndpoint, requestContent, cancellationToken);
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Token refresh failed: {StatusCode} - {Response}",
-                    response.StatusCode, responseContent);
+                    response.StatusCode, SalesforceCore.Security.SensitiveDataRedactor.ForDiagnostics(responseContent, _options.MaxErrorBodyLength));
                 return null;
             }
 
@@ -257,6 +279,13 @@ public class AspNetCoreTokenProvider : ITokenProvider
             if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
             {
                 _logger.LogWarning("Token refresh returned invalid response");
+                return null;
+            }
+
+            if (_options.ValidateInstanceUrl && !string.IsNullOrEmpty(tokenResponse.InstanceUrl) &&
+                !SalesforceCore.Security.SalesforceUrlValidator.TryValidate(tokenResponse.InstanceUrl, _options.AdditionalAllowedHosts, out var instReason))
+            {
+                _logger.LogError("Token refresh returned an untrusted instance URL; discarding tokens. {Reason}", instReason);
                 return null;
             }
 
@@ -357,8 +386,9 @@ public class AspNetCoreTokenProvider : ITokenProvider
 
     private async Task<RefreshSnapshot?> TryGetRefreshSnapshotAsync(string sessionKey, CancellationToken cancellationToken)
     {
-        if (_distributedCache == null || !_options.EnableServerSideTokenRefreshCoordinator)
+        if (_distributedCache == null || !_options.EnableServerSideTokenRefreshCoordinator || _tokenProtector == null)
         {
+            // Never read or write raw tokens to a shared cache without Data Protection.
             return null;
         }
 
@@ -386,8 +416,12 @@ public class AspNetCoreTokenProvider : ITokenProvider
 
     private async Task TrySetRefreshSnapshotAsync(string sessionKey, RefreshSnapshot snapshot, CancellationToken cancellationToken)
     {
-        if (_distributedCache == null || !_options.EnableServerSideTokenRefreshCoordinator)
+        if (_distributedCache == null || !_options.EnableServerSideTokenRefreshCoordinator || _tokenProtector == null)
         {
+            if (_tokenProtector == null && _distributedCache != null && _options.EnableServerSideTokenRefreshCoordinator)
+            {
+                _logger.LogWarning("Token refresh coordinator disabled: IDataProtectionProvider is not registered, refusing to store tokens unencrypted.");
+            }
             return;
         }
 

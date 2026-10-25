@@ -74,6 +74,9 @@ public class JwtTokenProvider : ITokenProvider
     public async Task<string?> RefreshTokenAsync(CancellationToken cancellationToken = default)
     {
         // Use synchronization service to prevent thundering herd
+        // Token the caller saw before the lock: if it is still cached afterwards it was rejected (401),
+        // so we must re-authenticate instead of handing back the same token.
+        var tokenBeforeLock = (await _cacheProvider.GetAsync<CachedToken>(CacheKey, cancellationToken))?.AccessToken;
         var semaphore = _synchronizationService.GetLock(CacheKey);
         await semaphore.WaitAsync(cancellationToken);
 
@@ -81,7 +84,8 @@ public class JwtTokenProvider : ITokenProvider
         {
             // Double-check cache after acquiring lock
             var cachedToken = await _cacheProvider.GetAsync<CachedToken>(CacheKey, cancellationToken);
-            if (cachedToken != null && !cachedToken.IsExpired(_expiryBuffer))
+            if (cachedToken != null && !cachedToken.IsExpired(_expiryBuffer) &&
+                !string.Equals(cachedToken.AccessToken, tokenBeforeLock, StringComparison.Ordinal))
             {
                 _logger.LogDebug("Token already refreshed by another thread.");
                 return cachedToken.AccessToken;
@@ -109,7 +113,14 @@ public class JwtTokenProvider : ITokenProvider
                 ["token"] = token.AccessToken
             });
 
-            await httpClient.PostAsync($"{token.InstanceUrl}{SalesforceConstants.Paths.OAuthRevoke}", content, cancellationToken);
+            if (_salesforceOptions.ValidateInstanceUrl &&
+                !SalesforceCore.Security.SalesforceUrlValidator.IsAllowed(token.InstanceUrl, _salesforceOptions.AdditionalAllowedHosts))
+            {
+                _logger.LogWarning("Skipping token revocation: cached instance URL is not a trusted Salesforce host");
+                return;
+            }
+
+            using var revokeResponse = await httpClient.PostAsync($"{token.InstanceUrl.TrimEnd('/')}{SalesforceConstants.Paths.OAuthRevoke}", content, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -128,6 +139,14 @@ public class JwtTokenProvider : ITokenProvider
         return token != null && !token.IsExpired(TimeSpan.Zero);
     }
 
+    private string ValidateReturnedInstanceUrl(string? instanceUrl)
+    {
+        if (string.IsNullOrEmpty(instanceUrl)) return string.Empty;
+        return _salesforceOptions.ValidateInstanceUrl
+            ? SalesforceCore.Security.SalesforceUrlValidator.EnsureAllowed(instanceUrl, _salesforceOptions.AdditionalAllowedHosts)
+            : instanceUrl;
+    }
+
     private async Task<string> AuthenticateAsync(CancellationToken cancellationToken)
     {
         _logger.LogDebug("Authenticating with JWT Bearer Flow");
@@ -142,13 +161,18 @@ public class JwtTokenProvider : ITokenProvider
             ["assertion"] = assertion
         });
 
-        var response = await httpClient.PostAsync(tokenEndpoint, content, cancellationToken);
+        if (_salesforceOptions.ValidateInstanceUrl)
+        {
+            SalesforceCore.Security.SalesforceUrlValidator.EnsureAllowed(_salesforceOptions.Domain, _salesforceOptions.AdditionalAllowedHosts, "login domain");
+        }
+
+        using var response = await httpClient.PostAsync(tokenEndpoint, content, cancellationToken);
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("JWT authentication failed: {StatusCode} - {Response}", response.StatusCode, responseContent);
-            throw new SalesforceAuthException($"JWT authentication failed: {responseContent}");
+            _logger.LogError("JWT authentication failed: {StatusCode} - {Response}", response.StatusCode, SalesforceCore.Security.SensitiveDataRedactor.ForDiagnostics(responseContent, _salesforceOptions.MaxErrorBodyLength));
+            throw new SalesforceAuthException($"JWT authentication failed: {SalesforceCore.Security.SensitiveDataRedactor.ForDiagnostics(responseContent, _salesforceOptions.MaxErrorBodyLength)}");
         }
 
         var tokenResponse = JsonSerializer.Deserialize<JwtTokenResponse>(responseContent,
@@ -170,7 +194,7 @@ public class JwtTokenProvider : ITokenProvider
         var cachedToken = new CachedToken
         {
             AccessToken = tokenResponse.AccessToken,
-            InstanceUrl = tokenResponse.InstanceUrl ?? string.Empty,
+            InstanceUrl = ValidateReturnedInstanceUrl(tokenResponse.InstanceUrl),
             ExpiresAt = expiry,
             Scopes = tokenResponse.Scope
         };
@@ -206,7 +230,7 @@ public class JwtTokenProvider : ITokenProvider
             new Claim("aud", _jwtOptions.Audience ?? _salesforceOptions.Domain)
         };
 
-        var privateKey = GetPrivateKey();
+        using var privateKey = GetPrivateKey();
 
         var credentials = new SigningCredentials(
             new RsaSecurityKey(privateKey),

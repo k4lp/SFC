@@ -224,7 +224,7 @@ public class PipelineIntegrationTests
             It.Is<string>(url => 
                 // The URL is encoded, so we verify the decoded version or parts of it
                 // Quotes should be escaped by doubling (SOQL escapes wildcards in value, not via ESCAPE keyword)
-                Uri.UnescapeDataString(url).Contains("LIKE '%Smith'' OR ''1''=''1%'")
+                Uri.UnescapeDataString(url).Contains("LIKE '%Smith\\' OR \\'1\\'=\\'1%'")
             ), 
             It.IsAny<CancellationToken>()), Times.Once);
     }

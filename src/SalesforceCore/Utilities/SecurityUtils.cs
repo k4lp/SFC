@@ -37,8 +37,52 @@ public static class SecurityUtils
         // Control characters can sometimes cause parsing issues
         sanitized = RemoveControlCharacters(sanitized);
 
-        // Step 5: Escape single quotes by doubling them (core SOQL injection prevention)
-        return sanitized.Replace("'", "''");
+        // Step 5: Escape using SOQL backslash escape sequences.
+        // SOQL does NOT support SQL-style quote doubling (''); the only correct escape for a quote is \'.
+        // Backslash MUST be escaped first, otherwise an input such as  \' OR Id != null OR Name = \'
+        // would turn the escaping backslash into a literal and close the string (injection).
+        return EscapeSoqlStringLiteral(sanitized);
+    }
+
+    /// <summary>
+    /// Escapes a value for use inside a single-quoted SOQL/SOSL string literal using the documented
+    /// escape sequences (\\, \', \", \n, \r, \t). Does not add the surrounding quotes.
+    /// </summary>
+    public static string EscapeSoqlStringLiteral(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        var sb = new System.Text.StringBuilder(input.Length + 8);
+        foreach (var c in input)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '\'': sb.Append("\\'"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Escapes a SOSL search term for use inside FIND {...}: SOSL reserved characters are backslash-escaped.
+    /// </summary>
+    public static string EscapeSoslSearchTerm(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        const string reserved = "?&|!{}[]()^~*:\\\"'+-";
+        var cleaned = RemoveControlCharacters(input.Replace("\0", string.Empty));
+        var sb = new System.Text.StringBuilder(cleaned.Length + 8);
+        foreach (var c in cleaned)
+        {
+            if (reserved.IndexOf(c) >= 0) sb.Append('\\');
+            sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -107,11 +151,8 @@ public static class SecurityUtils
             return string.Empty;
         }
 
-        var sanitized = SanitizeSoql(input);
-
-        // Escape the LIKE escape character itself first, then wildcards.
-        return sanitized
-            .Replace("\\", "\\\\")
+        // SanitizeSoql already escapes backslashes and quotes; only the LIKE wildcards remain.
+        return SanitizeSoql(input)
             .Replace("%", "\\%")
             .Replace("_", "\\_");
     }
@@ -243,7 +284,10 @@ public static class SecurityUtils
         // - Start with ~/ (ASP.NET virtual path)
         // - Do not start with a scheme (http://, https://, etc.)
 
-        if (url.StartsWith("//"))
+        // Browsers treat "/\\host" and "\\\\host" like "//host" (protocol-relative) - reject them too.
+        if (url.StartsWith("//") || url.StartsWith("/\\") || url.StartsWith("\\") ||
+            url.StartsWith("~//") || url.StartsWith("~/\\") ||
+            url.Any(c => char.IsControl(c)))
         {
             return false;
         }
@@ -282,7 +326,7 @@ public static class SecurityUtils
             return false;
         }
 
-        return Regex.IsMatch(id, "^[a-zA-Z0-9]+$");
+        return Regex.IsMatch(id, @"^[a-zA-Z0-9]+\z");
     }
 
     /// <summary>

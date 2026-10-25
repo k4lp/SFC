@@ -292,7 +292,7 @@ internal sealed class LikeCondition : SoqlCondition
     public LikeCondition(string field, string pattern)
     {
         _field = SecurityUtils.SanitizeFieldName(field);
-        _pattern = SecurityUtils.SanitizeSoql(pattern).Replace("\\", "\\\\");
+        _pattern = SecurityUtils.SanitizeSoql(pattern);
     }
 
     internal override string Render()

@@ -332,15 +332,17 @@ public class SoslBuilder
     /// </summary>
     private static string EscapeSoslTerm(string term)
     {
-        // SOSL reserved characters that need escaping: ? & | ! { } [ ] ( ) ^ ~ * : \ " ' + -
-        // However, * and ? are wildcards that users might want to use
-        var reserved = new[] { '&', '|', '!', '{', '}', '[', ']', '(', ')', '^', '~', ':', '\\', '"', '\'', '+', '-' };
-
-        foreach (var c in reserved)
+        // SOSL reserved characters: ? & | ! { } [ ] ( ) ^ ~ * : \ " ' + -
+        // * and ? are left unescaped because they are intentional wildcards.
+        // Escaping is done in a single pass so the backslash added for one character is never re-escaped.
+        const string reserved = "&|!{}[]()^~:\\\"'+-";
+        var sb = new System.Text.StringBuilder(term.Length + 8);
+        foreach (var c in term)
         {
-            term = term.Replace(c.ToString(), "\\" + c);
+            if (c == '\0' || (char.IsControl(c) && c != ' ')) continue;
+            if (reserved.IndexOf(c) >= 0) sb.Append('\\');
+            sb.Append(c);
         }
-
-        return term;
+        return sb.ToString();
     }
 }
