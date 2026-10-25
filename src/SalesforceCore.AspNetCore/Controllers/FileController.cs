@@ -66,6 +66,14 @@ public class FileController : Controller
             var content = await _dataService.GetFileContentAsync(versionId);
             var mimeType = GetMimeType(type ?? "jpg");
 
+            // SFC-01: only render raster images inline; anything else is forced to download so
+            // attacker-controlled files (XML/XHTML, HTML-in-text, etc.) never execute on this origin.
+            if (!InlineSafeMimeTypes.Contains(mimeType) || mimeType == "application/pdf")
+            {
+                return DownloadOnly(content, "image");
+            }
+
+            ApplyFileSecurityHeaders();
             return File(content, mimeType);
         }
         catch (Exception ex)
@@ -96,6 +104,7 @@ public class FileController : Controller
             var extension = Path.GetExtension(safeFilename).TrimStart('.');
             var mimeType = GetMimeType(extension);
 
+            ApplyFileSecurityHeaders();
             return File(content, mimeType, safeFilename);
         }
         catch (Exception ex)
@@ -123,7 +132,14 @@ public class FileController : Controller
             var content = await _dataService.GetFileContentAsync(versionId);
             var mimeType = GetMimeType(type ?? "pdf");
 
-            // Set content disposition to inline for preview
+            // SFC-01: inline preview only for an allow-list of passive types (raster images, PDF).
+            // Other types are served as attachments with a neutral content type.
+            if (!InlineSafeMimeTypes.Contains(mimeType))
+            {
+                return DownloadOnly(content, "preview");
+            }
+
+            ApplyFileSecurityHeaders();
             Response.Headers["Content-Disposition"] = "inline";
 
             return File(content, mimeType);
@@ -133,6 +149,27 @@ public class FileController : Controller
             _logger.LogError(ex, "Failed to preview file {VersionId}", versionId);
             return NotFound();
         }
+    }
+
+    /// <summary>
+    /// Content types that are safe to render inline on the application origin (SFC-01).
+    /// </summary>
+    internal static readonly HashSet<string> InlineSafeMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "application/pdf"
+    };
+
+    private IActionResult DownloadOnly(byte[] content, string name)
+    {
+        ApplyFileSecurityHeaders();
+        return File(content, "application/octet-stream", name);
+    }
+
+    private void ApplyFileSecurityHeaders()
+    {
+        // Defence in depth for user-supplied file content served from this origin.
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
     }
 
     private static string GetMimeType(string extension)

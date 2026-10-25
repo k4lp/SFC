@@ -510,7 +510,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
                 // Check Visibility Policy for Related List Override
                 if (!string.IsNullOrEmpty(configList.VisibilityPolicy))
                 {
-                     if (!await _visibilityService.EvaluatePolicyAsync(configList.VisibilityPolicy))
+                     if (!await _visibilityService.EvaluatePolicyAsync(configList.VisibilityPolicy, cancellationToken))
                      {
                          // Remove the related list if it exists
                          relatedLists.RemoveAll(r => r.RelationshipName.Equals(configList.RelationshipName, StringComparison.OrdinalIgnoreCase));
@@ -786,7 +786,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         // Check Visibility Policy
         if (!string.IsNullOrEmpty(config.VisibilityPolicy))
         {
-            if (!await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy))
+            if (!await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy, cancellationToken))
             {
                 if (options.HideInaccessibleNavItems)
                     return null;
@@ -863,7 +863,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         // Object-level visibility
         if (!string.IsNullOrEmpty(config.VisibilityPolicy))
         {
-            var isVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy);
+            var isVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy, cancellationToken);
             if (!isVisible)
             {
                 return new FormDescriptor
@@ -939,7 +939,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
                 // Check Visibility Policy for Section
                 if (!string.IsNullOrEmpty(sectionConfig.VisibilityPolicy))
                 {
-                    if (!await _visibilityService.EvaluatePolicyAsync(sectionConfig.VisibilityPolicy))
+                    if (!await _visibilityService.EvaluatePolicyAsync(sectionConfig.VisibilityPolicy, cancellationToken))
                     {
                         continue; // Skip this section entirely
                     }
@@ -1022,7 +1022,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         var config = options.GetObjectConfig(objectName);
         if (!string.IsNullOrEmpty(config.VisibilityPolicy))
         {
-            var isVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy);
+            var isVisible = await _visibilityService.EvaluatePolicyAsync(config.VisibilityPolicy, cancellationToken);
             if (!isVisible)
             {
                 return new ListDescriptor

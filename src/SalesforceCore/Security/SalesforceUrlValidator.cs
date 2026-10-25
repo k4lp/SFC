@@ -7,8 +7,14 @@ namespace SalesforceCore.Security;
 public static class SalesforceUrlValidator
 {
     /// <summary>
-    /// Host suffixes operated by Salesforce (commercial, government, China/Alibaba, sandboxes, Experience Cloud).
+    /// Host suffixes operated by Salesforce (commercial, government, China/Alibaba, sandboxes).
     /// </summary>
+    /// <remarks>
+    /// SFC-08: <c>.salesforce-sites.com</c> (public Salesforce Sites, whose content and public Apex REST endpoints are
+    /// controlled by any Salesforce customer) is intentionally excluded: it is never an API instance host, and trusting
+    /// it would let a token be sent to an endpoint run by another tenant. Add it via
+    /// <c>SalesforceOptions.AdditionalAllowedHosts</c> only if you genuinely need it.
+    /// </remarks>
     public static IReadOnlyList<string> DefaultAllowedHostSuffixes { get; } = new[]
     {
         ".salesforce.com",
@@ -18,7 +24,6 @@ public static class SalesforceUrlValidator
         ".cloudforce.mil",
         ".database.com",
         ".salesforce-setup.com",
-        ".salesforce-sites.com",
         ".sfcrmapps.cn",
         ".sfcrmproducts.cn",
         ".force.mil",

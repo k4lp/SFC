@@ -1489,17 +1489,22 @@ Scaffolds a complete form based on model metadata:
 
 ## Security
 
-SalesforceCore 1.2.0 ships with secure defaults. Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+SalesforceCore 1.3.0 ships with secure defaults (see `docs/security/SFC_Security_Scan_Report.md` for the full 1.3.0 audit). Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 | Protection | Default | Opt-out / tuning |
 |---|---|---|
-| Access/refresh tokens and client secrets are only sent to HTTPS Salesforce hosts (`*.salesforce.com`, `*.force.com`, `*.salesforce.mil`, `*.cloudforce.com`, `*.database.com`, `*.salesforce-setup.com`, `*.salesforce-sites.com`, `*.sfcrmproducts.cn`, `*.sfcrmapps.cn`). A tampered `instance_url` (token response, cookie, cache) or a mis-typed `Domain` is rejected. | On | `Salesforce:AdditionalAllowedHosts` (exact host or `.suffix`) for proxies/custom domains; `Salesforce:ValidateInstanceUrl=false` for local test doubles only |
+| Access/refresh tokens and client secrets are only sent to HTTPS Salesforce hosts (`*.salesforce.com`, `*.force.com`, `*.salesforce.mil`, `*.cloudforce.com`, `*.database.com`, `*.salesforce-setup.com`, `*.sfcrmproducts.cn`, `*.sfcrmapps.cn`). A tampered `instance_url` (token response, cookie, cache) or a mis-typed `Domain` is rejected. Since 1.3.0 `*.salesforce-sites.com` (public Sites, tenant-controlled content) is no longer trusted by default. | On | `Salesforce:AdditionalAllowedHosts` (exact host or `.suffix`) for proxies/custom domains; `Salesforce:ValidateInstanceUrl=false` for local test doubles only |
 | SOQL string values are escaped with backslash sequences (`\\`, `\'`, `\"`, `\n`…). Use `SecurityUtils.EscapeSoqlStringLiteral`, `SanitizeSoqlLike`, `EscapeSoslSearchTerm`, `FormatSoqlValue` or the `SoqlBuilder`/LINQ provider — never string-concatenate user input. | On | — |
 | Record IDs passed to `DataService` Get/Update/Delete must be 15/18 alphanumeric chars (blocks `../` REST path tampering). | On | `Salesforce:ValidateSoqlInputs=false` |
 | Error bodies from OAuth endpoints are redacted (`access_token`, `refresh_token`, `client_secret`, Bearer, session IDs) and truncated before logging or throwing. `CachedToken.ToString()` never prints tokens. | On | `Salesforce:MaxErrorBodyLength` |
 | Token refresh: one refresh per 401, serialized per session; a rejected-but-unexpired token is never handed back as "refreshed". | On | — |
 | Refresh coordinator snapshots in `IDistributedCache` are always Data-Protection encrypted (disabled if no `IDataProtectionProvider`). | On | — |
-| `DistributedCacheTokenProvider` keys tokens by session, then `NameIdentifier`/`sub` — never by display name. | On | `AllowUserNameAsCacheKey=true` |
+| `DistributedCacheTokenProvider` keys tokens by the authenticated user (`NameIdentifier`/`sub`, hashed) plus the session ID — never by session ID alone (session fixation) or display name. | On | `AllowAnonymousSessionCacheKey=true`, `AllowUserNameAsCacheKey=true` |
+| `DistributedCacheTokenProvider` encrypts tokens with ASP.NET Core Data Protection before writing them to the shared cache; plaintext legacy entries are ignored. Persist/share the key ring across servers. | On | `AllowUnprotectedTokenStorage=true` (dev only) |
+| Logout revokes the refresh token (which also invalidates its access tokens), not just the access token. | On | — |
+| Object describe results are cached per authenticated user (describe flags reflect the caller's FLS). | On | `Salesforce:PartitionSchemaCacheByUser=false` for single integration-user apps |
+| `FileController` renders only raster images and PDF inline; everything else is a download with `application/octet-stream`, and file responses carry `nosniff` + a sandboxing CSP. | On | — |
+| MVC: details view enforces the module visibility policy; uploads must target a record of the routed object; search text is matched literally (LIKE wildcards escaped); lookup limits clamped to 1–200; non-Salesforce exception messages are not shown to users; `POST api/dynamic-ui/refresh` requires an antiforgery token (`RequestVerificationToken` header). | On | — |
 | Cookies: `__Host-` prefix, `HttpOnly`, `Secure` (Always), `SameSite=Lax`; OIDC code flow with PKCE, state and nonce; HTTPS metadata required. | On | `Salesforce:ForceSecureCookie=false` behind TLS-terminating proxies only |
 | ModelGenerator escapes all org metadata (names, labels, help text, picklist values) before emitting C#, and refuses to write outside `--output`. Prefer `SF_ACCESS_TOKEN` env var over `--token` (process lists are visible to other users). | On | — |
 | NuGet audit (direct + transitive) fails the build on any known vulnerable package. | On | — |

@@ -105,7 +105,7 @@ public class ClientCredentialsTokenProvider : ITokenProvider
         try
         {
             var httpClient = _httpClientFactory.CreateClient("SalesforceClientCredentials");
-            var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["token"] = token.AccessToken
             });
@@ -159,7 +159,7 @@ public class ClientCredentialsTokenProvider : ITokenProvider
         var httpClient = _httpClientFactory.CreateClient("SalesforceClientCredentials");
         var tokenEndpoint = $"{_salesforceOptions.Domain.TrimEnd('/')}{SalesforceConstants.Paths.OAuthToken}";
 
-        var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "client_credentials",
             ["client_id"] = clientId,

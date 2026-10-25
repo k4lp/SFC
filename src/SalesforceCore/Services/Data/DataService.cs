@@ -156,7 +156,14 @@ public class DataService : IDataService
         // Ensure valid page size
         pageSize = Math.Min(Math.Max(pageSize, 1), _options!.MaxPageSize);
         page = Math.Max(page, 1);
-        var offset = (page - 1) * pageSize;
+        // SFC-14: compute in 64-bit so huge page numbers cannot overflow into a negative OFFSET,
+        // and reject offsets beyond the SOQL maximum (2,000) up front.
+        var longOffset = (long)(page - 1) * pageSize;
+        if (longOffset > SoqlMaxOffset)
+        {
+            throw new ArgumentOutOfRangeException(nameof(page), $"Requested page exceeds the SOQL OFFSET limit of {SoqlMaxOffset} rows.");
+        }
+        var offset = (int)longOffset;
 
         // Build SOQL query using SoqlBuilder
         var builder = new SoqlBuilder(sObject)
@@ -223,6 +230,9 @@ public class DataService : IDataService
     #endregion
 
     #region CRUD Operations
+
+    /// <summary>Maximum OFFSET supported by SOQL.</summary>
+    internal const int SoqlMaxOffset = 2000;
 
     /// <summary>
     /// Rejects record IDs that are not 15/18-character alphanumeric Salesforce IDs so they cannot

@@ -473,6 +473,9 @@ public static class ServiceCollectionExtensions
         Action<DistributedCacheTokenProviderOptions>? configureOptions = null)
     {
         services.AddHttpContextAccessor();
+        // SFC-03: tokens are encrypted with Data Protection before they reach the shared cache.
+        // Multi-server deployments must persist and share the key ring (e.g. PersistKeysToStackExchangeRedis).
+        services.AddDataProtection();
 
         var options = new DistributedCacheTokenProviderOptions();
         configureOptions?.Invoke(options);

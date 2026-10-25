@@ -257,6 +257,7 @@ public class DynamicUiController : ControllerBase
     /// <param name="sObject">Object to refresh, or null for all.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpPost("refresh")]
+    [ValidateAntiForgeryToken] // SFC-09: cookie-authenticated state-changing endpoint; send the RequestVerificationToken header.
     [ProducesResponseType(200)]
     public async Task<ActionResult> RefreshCache(
         [FromQuery] string? sObject = null,

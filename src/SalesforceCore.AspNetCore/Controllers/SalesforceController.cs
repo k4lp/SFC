@@ -104,12 +104,16 @@ public class SalesforceController : Controller
         {
             var nameField = await _schemaService.GetNameFieldAsync(sObject);
             // Use type-safe LIKE condition with wildcards
-            filter = SoqlCondition.Like(nameField, $"%{q}%");
+            filter = SoqlCondition.Contains(nameField, q); // SFC-11: wildcards in q are matched literally
         }
 
         // Ensure valid page size
         var effectivePageSize = pageSize ?? _options.DefaultPageSize;
         effectivePageSize = Math.Min(Math.Max(effectivePageSize, 1), _options.MaxPageSize);
+        if (page < 1 || (long)(page - 1) * effectivePageSize > 2000)
+        {
+            return BadRequest("Invalid page number.");
+        }
 
         var result = await _dataService.QueryPagedAsync(
             sObject,
@@ -169,6 +173,16 @@ public class SalesforceController : Controller
         }
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
+
+        // SFC-02: enforce the module visibility policy on the details view as well (was only on list/create/edit/delete).
+        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
+        {
+            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
+            {
+                return NotFound($"Object '{sObject}' not found.");
+            }
+        }
+
         var describe = await _schemaService.GetDescribeAsync(sObject);
 
         if (describe == null)
@@ -222,6 +236,16 @@ public class SalesforceController : Controller
         }
 
         var moduleConfig = await _configService.GetModuleConfigAsync(sObject);
+
+        // SFC-02: enforce the module visibility policy on the details view as well (was only on list/create/edit/delete).
+        if (moduleConfig != null && !string.IsNullOrEmpty(moduleConfig.VisibilityPolicy))
+        {
+            if (!await _visibilityService.EvaluatePolicyAsync(moduleConfig.VisibilityPolicy))
+            {
+                return NotFound($"Object '{sObject}' not found.");
+            }
+        }
+
         var describe = await _schemaService.GetDescribeAsync(sObject);
 
         if (describe == null)
@@ -301,13 +325,13 @@ public class SalesforceController : Controller
         {
             _logger.LogError(ex, "Failed to create {SObject}", sObject);
 
-            TempData["ErrorMessage"] = ex.Message;
+            TempData["ErrorMessage"] = SafeErrorMessage(ex);
 
             if (Request.Headers.ContainsKey("HX-Request"))
             {
                 // Return 400 for validation/Salesforce errors, 500 for others
                 Response.StatusCode = ex is Models.Errors.SalesforceException ? 400 : 500;
-                return Content(ex.Message);
+                return Content(SafeErrorMessage(ex));
             }
 
             return RedirectToAction("Create", new { sObject });
@@ -434,12 +458,12 @@ public class SalesforceController : Controller
         {
             _logger.LogError(ex, "Failed to update {SObject} {Id}", sObject, id);
 
-            TempData["ErrorMessage"] = ex.Message;
+            TempData["ErrorMessage"] = SafeErrorMessage(ex);
 
             if (Request.Headers.ContainsKey("HX-Request"))
             {
                 Response.StatusCode = ex is Models.Errors.SalesforceException ? 400 : 500;
-                return Content(ex.Message);
+                return Content(SafeErrorMessage(ex));
             }
 
             return RedirectToAction("Edit", new { sObject, id });
@@ -497,12 +521,12 @@ public class SalesforceController : Controller
         {
             _logger.LogError(ex, "Failed to delete {SObject} {Id}", sObject, id);
 
-            TempData["ErrorMessage"] = ex.Message;
+            TempData["ErrorMessage"] = SafeErrorMessage(ex);
 
             if (Request.Headers.ContainsKey("HX-Request"))
             {
                 Response.StatusCode = ex is Models.Errors.SalesforceException ? 400 : 500;
-                return Content(ex.Message);
+                return Content(SafeErrorMessage(ex));
             }
 
             return RedirectToAction("Details", new { sObject, id });
@@ -541,6 +565,15 @@ public class SalesforceController : Controller
             }
         }
 
+        // SFC-13: the record ID must belong to the object in the route, so the per-object visibility
+        // policy above cannot be sidestepped by attaching files to a record of a different object.
+        var uploadDescribe = await _schemaService.GetDescribeAsync(sObject);
+        if (uploadDescribe == null ||
+            (!string.IsNullOrEmpty(uploadDescribe.KeyPrefix) && !id.StartsWith(uploadDescribe.KeyPrefix, StringComparison.Ordinal)))
+        {
+            return NotFound("Object not found or not accessible.");
+        }
+
         if (file == null || file.Length == 0)
         {
             return BadRequest("No file provided.");
@@ -576,10 +609,19 @@ public class SalesforceController : Controller
         {
             _logger.LogError(ex, "Failed to upload file to {SObject} {Id}", sObject, id);
 
-            TempData["ErrorMessage"] = ex.Message;
+            TempData["ErrorMessage"] = SafeErrorMessage(ex);
             return RedirectToAction("Details", new { sObject, id });
         }
     }
+
+    /// <summary>
+    /// SFC-10: only Salesforce API errors (validation messages meant for users) are shown verbatim;
+    /// other exceptions are replaced by a generic message so internals are not disclosed.
+    /// </summary>
+    internal static string SafeErrorMessage(Exception ex)
+        => ex is Models.Errors.SalesforceException
+            ? ex.Message
+            : "An unexpected error occurred. Please try again or contact your administrator.";
 
     private Dictionary<string, object?> BuildPayloadFromForm(IFormCollection form, List<SObjectField> fields)
     {
