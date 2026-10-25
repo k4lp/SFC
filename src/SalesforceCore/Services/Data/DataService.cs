@@ -82,6 +82,11 @@ public class DataService : IDataService
         var idx = path.IndexOf("/services/", StringComparison.OrdinalIgnoreCase);
         if (idx > 0)
         {
+            // Only a full absolute http(s) URL may be shortened to its path; anything else (e.g. "//host/...") is rejected.
+            if (!Uri.TryCreate(path, UriKind.Absolute, out var abs) || abs.Scheme is not ("https" or "http"))
+            {
+                throw new ArgumentException("Invalid nextRecordsUrl.", nameof(nextRecordsUrl));
+            }
             path = path.Substring(idx);
         }
         if (path.Contains("..", StringComparison.Ordinal) || path.Contains('\\') || path.Contains("//", StringComparison.Ordinal))
