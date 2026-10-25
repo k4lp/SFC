@@ -208,6 +208,9 @@ public static class ServiceCollectionExtensions
             api.AddStandardResilienceHandler().Configure((resilience, sp) => ConfigureResilience(resilience, sp.GetRequiredService<IOptions<SalesforceOptions>>().Value));
             api.AddHttpMessageHandler<SalesforceLoggingHandler>();
             api.AddHttpMessageHandler<SalesforceApiUsageHandler>();
+            // The standard resilience handler resets HttpClient.Timeout to infinite (it owns timeouts);
+            // re-apply HttpTimeout afterwards so it acts as an outer safety net as documented.
+            api.ConfigureHttpClient((sp, c) => c.Timeout = sp.GetRequiredService<IOptions<SalesforceOptions>>().Value.HttpTimeout);
 
             services.AddHttpClient(SalesforceHttpClientNames.Jwt, ConfigureClient).AddStandardResilienceHandler();
             services.AddHttpClient(SalesforceHttpClientNames.ClientCredentials, ConfigureClient).AddStandardResilienceHandler();
@@ -260,7 +263,11 @@ public static class ServiceCollectionExtensions
         resilienceOptions.Retry.UseJitter = true;
         resilienceOptions.Retry.ShouldRetryAfterHeader = true;
 
-        resilienceOptions.CircuitBreaker.SamplingDuration = options.CircuitBreakerSamplingDuration;
+        // Polly requires SamplingDuration >= 2 x AttemptTimeout; 1.x shipped 30s/30s defaults which failed
+        // validation on the first HttpClient creation. Clamp so any PerAttemptTimeout yields a valid pipeline.
+        var minSampling = options.PerAttemptTimeout + options.PerAttemptTimeout;
+        resilienceOptions.CircuitBreaker.SamplingDuration =
+            options.CircuitBreakerSamplingDuration >= minSampling ? options.CircuitBreakerSamplingDuration : minSampling;
         resilienceOptions.CircuitBreaker.BreakDuration = options.CircuitBreakerBreakDuration;
         resilienceOptions.CircuitBreaker.MinimumThroughput = 5;
         resilienceOptions.CircuitBreaker.FailureRatio = 0.5;

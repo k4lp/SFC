@@ -270,7 +270,7 @@ public static class SalesforceConstants
         /// <summary>
         /// Circuit breaker sampling duration in seconds.
         /// </summary>
-        public const int CircuitBreakerSamplingSeconds = 30;
+        public const int CircuitBreakerSamplingSeconds = 60;
 
         /// <summary>
         /// Circuit breaker break duration in seconds.
