@@ -117,19 +117,25 @@ SalesforceCore is a comprehensive .NET library for Salesforce integration. It pr
 
 ### NuGet Package Installation
 
+> **Name clash:** the `SalesforceCore` package on nuget.org is an unrelated library owned by someone else. Install this project's packages from a downloaded [GitHub Release](https://github.com/k4lp/SFC/releases) via a local feed, as below.
+
 ```bash
 # Create a new project (if starting fresh)
 dotnet new webapi -n MySalesforceApp
 cd MySalesforceApp
 
-# Install the core library (required)
-dotnet add package SalesforceCore
+# One-time: put the .nupkg files from a GitHub Release into a local feed
+mkdir -p ~/nuget-local && cp SalesforceCore*.nupkg ~/nuget-local/
+dotnet nuget add source ~/nuget-local --name sfc-local
 
-# Install ASP.NET Core integration (recommended for web apps)
-dotnet add package SalesforceCore.AspNetCore
+# Core (required)
+dotnet add package SalesforceCore --version 2.0.0 --source sfc-local
 
-# Install model generator CLI (optional, global tool)
-dotnet tool install -g SalesforceCore.ModelGenerator
+# ASP.NET Core integration (optional web helpers)
+dotnet add package SalesforceCore.AspNetCore --version 2.0.0 --source sfc-local
+
+# Model generator CLI (optional)
+dotnet tool install -g SalesforceCore.ModelGenerator --version 2.0.0 --add-source ~/nuget-local
 ```
 
 ### Package Reference in .csproj
@@ -146,10 +152,10 @@ For more control, add packages directly to your `.csproj`:
 
   <ItemGroup>
     <!-- Core library - required -->
-    <PackageReference Include="SalesforceCore" Version="1.0.0" />
+    <PackageReference Include="SalesforceCore" Version="2.0.0" />
 
     <!-- ASP.NET Core integration - for web apps -->
-    <PackageReference Include="SalesforceCore.AspNetCore" Version="1.0.0" />
+    <PackageReference Include="SalesforceCore.AspNetCore" Version="2.0.0" />
 
     <!-- Optional: Redis caching -->
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.0" />
