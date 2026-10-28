@@ -17,15 +17,21 @@ Opinionated checklist to get a SalesforceCore project running on .NET 10 with pr
 - For JWT flow: upload certificate and pre-authorize users/profiles.
 
 ## Install Packages
+> **Name clash:** the `SalesforceCore` package on nuget.org is an unrelated library owned by someone else. Install this project's packages from a downloaded [GitHub Release](https://github.com/k4lp/SFC/releases) via a local feed, as below.
+
 ```bash
+# One-time: put the .nupkg files from a GitHub Release into a local feed
+mkdir -p ~/nuget-local && cp SalesforceCore*.nupkg ~/nuget-local/
+dotnet nuget add source ~/nuget-local --name sfc-local
+
 # Core (required)
-dotnet add package SalesforceCore
+dotnet add package SalesforceCore --version 2.0.0 --source sfc-local
 
 # ASP.NET Core integration (optional web helpers)
-dotnet add package SalesforceCore.AspNetCore
+dotnet add package SalesforceCore.AspNetCore --version 2.0.0 --source sfc-local
 
 # Model generator CLI (optional)
-dotnet tool install -g SalesforceCore.ModelGenerator
+dotnet tool install -g SalesforceCore.ModelGenerator --version 2.0.0 --add-source ~/nuget-local
 ```
 
 ## Minimal Config (appsettings.json)
