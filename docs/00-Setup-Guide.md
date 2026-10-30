@@ -20,19 +20,41 @@ Opinionated checklist to get a SalesforceCore project running on .NET 10 with pr
 > **Name clash:** the `SalesforceCore` package on nuget.org is an unrelated library owned by someone else. Install this project's packages from a downloaded [GitHub Release](https://github.com/k4lp/SFC/releases) via a local feed, as below.
 
 ```bash
-# One-time: put the .nupkg files from a GitHub Release into a local feed
-mkdir -p ~/nuget-local && cp SalesforceCore*.nupkg ~/nuget-local/
-dotnet nuget add source ~/nuget-local --name sfc-local
+# One-time, in your solution/project folder: put the .nupkg files from a GitHub Release into ./nuget-local
+mkdir -p nuget-local && cp /path/to/downloaded/SalesforceCore*.nupkg nuget-local/
+```
 
+Add this `nuget.config` beside your `.sln`/`.csproj`. It keeps nuget.org for normal dependencies and maps only `SalesforceCore*` to the local feed:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- nuget.config next to your .sln/.csproj -->
+<configuration>
+  <packageSources>
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="sfc-local" value="nuget-local" />
+  </packageSources>
+  <packageSourceMapping>
+    <!-- SalesforceCore* only from the release feed (nuget.org has an unrelated package with this id) -->
+    <packageSource key="sfc-local"><package pattern="SalesforceCore*" /></packageSource>
+    <!-- everything else (CsvHelper, Microsoft.*, ...) from nuget.org -->
+    <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+  </packageSourceMapping>
+</configuration>
+```
+
+```bash
 # Core (required)
-dotnet add package SalesforceCore --version 2.0.0 --source sfc-local
+dotnet add package SalesforceCore --version 2.0.0
 
 # ASP.NET Core integration (optional web helpers)
-dotnet add package SalesforceCore.AspNetCore --version 2.0.0 --source sfc-local
+dotnet add package SalesforceCore.AspNetCore --version 2.0.0
 
-# Model generator CLI (optional)
-dotnet tool install -g SalesforceCore.ModelGenerator --version 2.0.0 --add-source ~/nuget-local
+# Model generator CLI (optional; run from the folder that has the nuget.config)
+dotnet tool install -g SalesforceCore.ModelGenerator --version 2.0.0
 ```
+
+Don't pass `--source` / `--add-source`: `--source` replaces your configured feeds (so dependencies like CsvHelper can't restore), and `dotnet tool install` rejects `--add-source` when package source mapping is on. The `nuget.config` above handles both.
 
 ## Minimal Config (appsettings.json)
 ```json
