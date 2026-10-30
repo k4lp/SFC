@@ -57,31 +57,62 @@ public class DistributedCacheTicketStore : ITicketStore
     }
 
     /// <inheritdoc/>
-    public async Task<string> StoreAsync(AuthenticationTicket ticket)
+    public Task<string> StoreAsync(AuthenticationTicket ticket) => StoreAsync(ticket, CancellationToken.None);
+
+    /// <inheritdoc/>
+    public async Task<string> StoreAsync(AuthenticationTicket ticket, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(ticket);
         var key = GenerateKey();
-        await RenewAsync(key, ticket);
+        await RenewAsync(key, ticket, cancellationToken);
         _logger.LogDebug("Stored authentication ticket with key {Key}", key);
         return key;
     }
 
     /// <inheritdoc/>
-    public async Task RenewAsync(string key, AuthenticationTicket ticket)
+    public Task RenewAsync(string key, AuthenticationTicket ticket) => RenewAsync(key, ticket, CancellationToken.None);
+
+    /// <inheritdoc/>
+    public async Task RenewAsync(string key, AuthenticationTicket ticket, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentNullException.ThrowIfNull(ticket);
+
         var ticketData = TicketSerializer.Default.Serialize(ticket);
         if (_protector != null)
         {
             ticketData = _protector.Protect(ticketData);
         }
 
-        await _cache.SetAsync(KeyPrefix + key, ticketData, _cacheOptions);
+        await _cache.SetAsync(KeyPrefix + key, ticketData, EntryOptionsFor(ticket), cancellationToken);
         _logger.LogDebug("Renewed authentication ticket with key {Key}", key);
     }
 
-    /// <inheritdoc/>
-    public async Task<AuthenticationTicket?> RetrieveAsync(string key)
+    /// <summary>
+    /// The cache entry never outlives the ticket: when the ticket carries <c>ExpiresUtc</c> it caps the entry
+    /// with an absolute expiry (previously only the fixed sliding window applied, so an expired ticket could stay
+    /// retrievable, and a persistent "remember me" ticket was evicted early).
+    /// </summary>
+    internal DistributedCacheEntryOptions EntryOptionsFor(AuthenticationTicket ticket)
     {
-        var ticketData = await _cache.GetAsync(KeyPrefix + key);
+        var expires = ticket.Properties.ExpiresUtc;
+        if (expires is null) return _cacheOptions;
+        return new DistributedCacheEntryOptions
+        {
+            SlidingExpiration = _cacheOptions.SlidingExpiration,
+            AbsoluteExpiration = expires.Value
+        };
+    }
+
+    /// <inheritdoc/>
+    public Task<AuthenticationTicket?> RetrieveAsync(string key) => RetrieveAsync(key, CancellationToken.None);
+
+    /// <inheritdoc/>
+    public async Task<AuthenticationTicket?> RetrieveAsync(string key, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+
+        var ticketData = await _cache.GetAsync(KeyPrefix + key, cancellationToken);
         if (ticketData == null)
         {
             _logger.LogDebug("Authentication ticket not found for key {Key}", key);
@@ -101,15 +132,30 @@ public class DistributedCacheTicketStore : ITicketStore
             }
         }
 
-        var ticket = TicketSerializer.Default.Deserialize(ticketData);
+        AuthenticationTicket? ticket;
+        try
+        {
+            ticket = TicketSerializer.Default.Deserialize(ticketData);
+        }
+        catch (Exception ex)
+        {
+            // Corrupt or foreign-format bytes must sign the user out, not crash the request pipeline.
+            _logger.LogWarning(ex, "Failed to deserialize authentication ticket for key {Key}", key);
+            return null;
+        }
+
         _logger.LogDebug("Retrieved authentication ticket for key {Key}", key);
         return ticket;
     }
 
     /// <inheritdoc/>
-    public async Task RemoveAsync(string key)
+    public Task RemoveAsync(string key) => RemoveAsync(key, CancellationToken.None);
+
+    /// <inheritdoc/>
+    public async Task RemoveAsync(string key, CancellationToken cancellationToken)
     {
-        await _cache.RemoveAsync(KeyPrefix + key);
+        if (string.IsNullOrEmpty(key)) return;
+        await _cache.RemoveAsync(KeyPrefix + key, cancellationToken);
         _logger.LogDebug("Removed authentication ticket with key {Key}", key);
     }
 

@@ -55,6 +55,8 @@
 
 ---
 
+> **2.1.0** is a robustness release (see [CHANGELOG.md](CHANGELOG.md)); upgrading from 2.0 is source-compatible.
+>
 > **2.0.0** is a breaking release: no access gating (Salesforce enforces CRUD/FLS), a dependency-free
 > `SalesforceCore.Abstractions` package, an optional `SalesforceCore.SqlServer` package, a single composable HTTP pipeline,
 > typed errors and a valid default resilience pipeline. Upgrading from 1.x: see [MIGRATION.md](MIGRATION.md) and [CHANGELOG.md](CHANGELOG.md).
@@ -744,10 +746,10 @@ Add this `nuget.config` beside your `.sln`/`.csproj`. It keeps nuget.org for nor
 ```
 
 ```bash
-dotnet add package SalesforceCore --version 2.0.0
-dotnet add package SalesforceCore.AspNetCore --version 2.0.0
-dotnet add package SalesforceCore.SqlServer --version 2.0.0   # optional
-dotnet tool install --global SalesforceCore.ModelGenerator --version 2.0.0
+dotnet add package SalesforceCore --version 2.1.0
+dotnet add package SalesforceCore.AspNetCore --version 2.1.0
+dotnet add package SalesforceCore.SqlServer --version 2.1.0   # optional
+dotnet tool install --global SalesforceCore.ModelGenerator --version 2.1.0
 ```
 
 Don't pass `--source` / `--add-source`: `--source` replaces your configured feeds (so dependencies like CsvHelper can't restore), and `dotnet tool install` rejects `--add-source` when package source mapping is on. The `nuget.config` above handles both.

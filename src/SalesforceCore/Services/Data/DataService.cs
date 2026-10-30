@@ -101,13 +101,9 @@ public class DataService : IDataService
     public async Task<List<JsonObject>> QueryAllAsync(string soql, CancellationToken cancellationToken = default)
     {
         var allRecords = new List<JsonObject>();
-        var result = await QueryAsync(soql, cancellationToken);
-        allRecords.AddRange(result.Records);
-
-        while (!result.Done && !string.IsNullOrEmpty(result.NextRecordsUrl))
+        await foreach (var record in QueryAllAsyncEnumerable(soql, cancellationToken).ConfigureAwait(false))
         {
-            result = await QueryNextAsync(result.NextRecordsUrl, cancellationToken);
-            allRecords.AddRange(result.Records);
+            allRecords.Add(record);
         }
 
         return allRecords;
@@ -119,20 +115,33 @@ public class DataService : IDataService
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var result = await QueryAsync(soql, cancellationToken);
+        var seenCursors = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var record in result.Records)
+        while (true)
         {
-            yield return record;
-        }
-
-        while (!result.Done && !string.IsNullOrEmpty(result.NextRecordsUrl))
-        {
-            result = await QueryNextAsync(result.NextRecordsUrl, cancellationToken);
-
-            foreach (var record in result.Records)
+            // A null page (empty body) or null Records must not NRE half-way through a paged read.
+            if (result?.Records is { } records)
             {
-                yield return record;
+                foreach (var record in records)
+                {
+                    if (record is not null) yield return record;
+                }
             }
+
+            if (result is null || result.Done || string.IsNullOrEmpty(result.NextRecordsUrl))
+            {
+                yield break;
+            }
+
+            // Guard against a cursor that points back at itself (proxy/caching bugs) — otherwise this loops forever.
+            if (!seenCursors.Add(result.NextRecordsUrl))
+            {
+                throw new InvalidOperationException(
+                    $"Salesforce returned a nextRecordsUrl that was already fetched ('{result.NextRecordsUrl}'); aborting to avoid an infinite pagination loop.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            result = await QueryNextAsync(result.NextRecordsUrl, cancellationToken);
         }
     }
 

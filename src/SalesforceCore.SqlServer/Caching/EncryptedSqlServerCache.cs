@@ -134,7 +134,8 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <inheritdoc/>
     public byte[]? Get(string key)
     {
-        return GetAsync(key).GetAwaiter().GetResult();
+        // Offloaded to the thread pool so a captured SynchronizationContext cannot deadlock the sync IDistributedCache API.
+        return Task.Run(() => GetAsync(key)).GetAwaiter().GetResult();
     }
 
     /// <inheritdoc/>
@@ -171,6 +172,10 @@ public class EncryptedSqlServerCache : IDistributedCache
 
             return decryptedValue;
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogCacheOperation("GET", fullKey, false, 0, startTime, $"Error: {ex.Message}");
@@ -182,7 +187,8 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <inheritdoc/>
     public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
     {
-        SetAsync(key, value, options).GetAwaiter().GetResult();
+        // Offloaded to the thread pool so a captured SynchronizationContext cannot deadlock the sync IDistributedCache API.
+        Task.Run(() => SetAsync(key, value, options)).GetAwaiter().GetResult();
     }
 
     /// <inheritdoc/>
@@ -219,6 +225,10 @@ public class EncryptedSqlServerCache : IDistributedCache
             LogCacheOperation("SET", fullKey, true, value.Length, startTime,
                 $"Expires: {expiresAt:O}, Sliding: {slidingSeconds?.ToString() ?? "None"}");
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogCacheOperation("SET", fullKey, false, value.Length, startTime, $"Error: {ex.Message}");
@@ -230,7 +240,8 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <inheritdoc/>
     public void Refresh(string key)
     {
-        RefreshAsync(key).GetAwaiter().GetResult();
+        // Offloaded to the thread pool so a captured SynchronizationContext cannot deadlock the sync IDistributedCache API.
+        Task.Run(() => RefreshAsync(key)).GetAwaiter().GetResult();
     }
 
     /// <inheritdoc/>
@@ -291,6 +302,10 @@ public class EncryptedSqlServerCache : IDistributedCache
 	                LogCacheOperation("REFRESH", fullKey, true, 0, startTime, "No sliding expiration");
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogCacheOperation("REFRESH", fullKey, false, 0, startTime, $"Error: {ex.Message}");
@@ -301,7 +316,8 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <inheritdoc/>
     public void Remove(string key)
     {
-        RemoveAsync(key).GetAwaiter().GetResult();
+        // Offloaded to the thread pool so a captured SynchronizationContext cannot deadlock the sync IDistributedCache API.
+        Task.Run(() => RemoveAsync(key)).GetAwaiter().GetResult();
     }
 
     /// <inheritdoc/>
@@ -324,6 +340,10 @@ public class EncryptedSqlServerCache : IDistributedCache
             LogCacheOperation("REMOVE", fullKey, true, 0, startTime,
                 deletedCount > 0 ? "Deleted" : "Not found");
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogCacheOperation("REMOVE", fullKey, false, 0, startTime, $"Error: {ex.Message}");
@@ -337,7 +357,7 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <param name="plaintext">The data to encrypt.</param>
     /// <returns>Encrypted data: [12-byte nonce][ciphertext][16-byte tag]</returns>
     /// <param name="cacheKey">Full cache key, bound as AES-GCM associated data.</param>
-    private byte[] Encrypt(byte[] plaintext, string cacheKey)
+    internal byte[] Encrypt(byte[] plaintext, string cacheKey)
     {
         // SFC-16: bind the ciphertext to its cache key (AES-GCM associated data) so a row cannot be
         // copied onto another key (e.g. one user's token entry onto another user's key) by someone with DB write access.
@@ -364,7 +384,7 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <param name="encryptedData">Encrypted data: [12-byte nonce][ciphertext][16-byte tag]</param>
     /// <returns>Decrypted plaintext.</returns>
     /// <param name="cacheKey">Full cache key, bound as AES-GCM associated data.</param>
-    private byte[] Decrypt(byte[] encryptedData, string cacheKey)
+    internal byte[] Decrypt(byte[] encryptedData, string cacheKey)
     {
         var aad = Encoding.UTF8.GetBytes(cacheKey);
         if (encryptedData.Length < NonceSize + TagSize)
@@ -392,7 +412,7 @@ public class EncryptedSqlServerCache : IDistributedCache
     /// <summary>
     /// Calculates expiration times from options.
     /// </summary>
-    private static (DateTimeOffset ExpiresAt, long? SlidingSeconds, DateTimeOffset? AbsoluteExpiration)
+    internal static (DateTimeOffset ExpiresAt, long? SlidingSeconds, DateTimeOffset? AbsoluteExpiration)
         CalculateExpiration(DistributedCacheEntryOptions options, DateTimeOffset now)
     {
         DateTimeOffset? absoluteExpiration = null;
@@ -409,7 +429,8 @@ public class EncryptedSqlServerCache : IDistributedCache
 
         if (options.SlidingExpiration.HasValue)
         {
-            slidingSeconds = (long)options.SlidingExpiration.Value.TotalSeconds;
+            // Round up (min 1s): truncating sub-second/fractional windows to 0 made entries expire on write.
+            slidingSeconds = Math.Max(1L, (long)Math.Ceiling(options.SlidingExpiration.Value.TotalSeconds));
         }
 
         // Calculate initial expiration
@@ -454,6 +475,10 @@ public class EncryptedSqlServerCache : IDistributedCache
                     .SetProperty(e => e.AccessCount, e => e.AccessCount + 1),
                     token);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             // Log but don't fail the read operation
@@ -493,6 +518,10 @@ public class EncryptedSqlServerCache : IDistributedCache
                         .SetProperty(e => e.ExpiresAtTime, newExpiry),
                         token);
             }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -571,6 +600,10 @@ public class EncryptedSqlServerCache : IDistributedCache
                         s => s.SetProperty(e => e.ExpiresAtTime, newExpiresAtTime.Value),
                         cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "CACHE_AUDIT: Failed to apply synchronous sliding expiration refresh for key {Key}", entry.Id);
@@ -601,6 +634,10 @@ public class EncryptedSqlServerCache : IDistributedCache
                     .ExecuteUpdateAsync(
                         s => s.SetProperty(e => e.ExpiresAtTime, newExpiresAtTime.Value),
                         cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

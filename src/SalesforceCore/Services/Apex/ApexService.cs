@@ -49,6 +49,11 @@ public class ApexService : IApexService
     /// <inheritdoc/>
     public async Task<T> GetAsync<T>(string path, Dictionary<string, string> queryParams, CancellationToken cancellationToken = default)
     {
+        if (queryParams is null || queryParams.Count == 0)
+        {
+            return await GetAsync<T>(path, cancellationToken);
+        }
+
         var queryString = string.Join("&", queryParams.Select(kv =>
             $"{UrlUtils.Escape(kv.Key)}={UrlUtils.Escape(kv.Value)}"));
 
@@ -129,7 +134,10 @@ public class ApexService : IApexService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var pathOnly = path.Split('?', 2)[0];
-        if (pathOnly.Contains("..", StringComparison.Ordinal) || pathOnly.Contains('\\') || pathOnly.Contains("//", StringComparison.Ordinal)
+        // Percent-encoded dots/slashes are decoded by some proxies and by Salesforce, so treat them like the raw form.
+        if (pathOnly.Contains("%2e", StringComparison.OrdinalIgnoreCase) || pathOnly.Contains("%2f", StringComparison.OrdinalIgnoreCase)
+            || pathOnly.Contains("%5c", StringComparison.OrdinalIgnoreCase)
+            || pathOnly.Contains("..", StringComparison.Ordinal) || pathOnly.Contains('\\') || pathOnly.Contains("//", StringComparison.Ordinal)
             || Uri.TryCreate(path, UriKind.Absolute, out var abs) && abs.Scheme is "http" or "https")
         {
             throw new ArgumentException("Apex REST path must be a relative path under /services/apexrest/ without '..', '\\' or '//'.", nameof(path));

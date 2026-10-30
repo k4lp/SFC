@@ -50,15 +50,61 @@ public class ApexServiceTests
     [Fact]
     public async Task GetAsync_ShouldCallApexEndpoint()
     {
-        // Act
-        try 
-        {
-            await _service.GetAsync<JObject>("/my/apex/class");
-        }
-        catch (JsonReaderException) 
-        {
-            // Expected since mock returns empty string
-        }
+        var expected = new JObject { ["ok"] = true };
+        _mockClient.Setup(c => c.GetAsync<JObject>("/services/apexrest/my/apex/class", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expected);
+
+        var result = await _service.GetAsync<JObject>("/my/apex/class");
+
+        result.Should().BeSameAs(expected);
+        _mockClient.Verify(c => c.GetAsync<JObject>("/services/apexrest/my/apex/class", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("my/class", "/services/apexrest/my/class")]
+    [InlineData("/services/apexrest/x", "/services/apexrest/x")]
+    public async Task GetAsync_NormalisesPath(string input, string expected)
+    {
+        await _service.GetAsync<JObject>(input);
+        _mockClient.Verify(c => c.GetAsync<JObject>(expected, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("../x")]
+    [InlineData("/a/%2e%2e/b")]
+    [InlineData("/a/%2F/b")]
+    [InlineData("a\\b")]
+    [InlineData("https://evil.example/x")]
+    [InlineData(" ")]
+    public async Task GetAsync_RejectsTraversal(string path)
+    {
+        var act = () => _service.GetAsync<JObject>(path);
+        await act.Should().ThrowAsync<ArgumentException>();
+        _mockClient.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetAsync_WithQueryParams_EscapesAndAppends()
+    {
+        await _service.GetAsync<JObject>("/c?x=1", new Dictionary<string, string> { ["a b"] = "c&d" });
+        _mockClient.Verify(c => c.GetAsync<JObject>("/services/apexrest/c?x=1&a%20b=c%26d", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAsync_WithNullOrEmptyQueryParams_DoesNotAppendQuestionMark()
+    {
+        await _service.GetAsync<JObject>("/c", (Dictionary<string, string>)null!);
+        await _service.GetAsync<JObject>("/c", new Dictionary<string, string>());
+        _mockClient.Verify(c => c.GetAsync<JObject>("/services/apexrest/c", It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task PostAsync_PassesBodyAndToken()
+    {
+        using var cts = new CancellationTokenSource();
+        var body = new { a = 1 };
+        await _service.PostAsync<JObject>("/p", body, cts.Token);
+        _mockClient.Verify(c => c.PostAsync<JObject>("/services/apexrest/p", body, cts.Token), Times.Once);
     }
 }
 

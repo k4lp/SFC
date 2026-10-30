@@ -148,7 +148,12 @@ public class SalesforcePicklistTagHelper : TagHelper
         var inputId = fieldName.Replace(".", "_");
 
         // Get current value(s)
-        var currentValue = For?.Model?.ToString() ?? "";
+        // A multi-select may be bound to "a;b" (Salesforce wire format) or to a string collection; previously a
+        // collection rendered as its type name and nothing was pre-selected.
+        var model = For?.Model;
+        var currentValue = model is System.Collections.IEnumerable seq and not string
+            ? string.Join(";", seq.Cast<object?>().Where(v => v != null).Select(v => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture)))
+            : Convert.ToString(model, System.Globalization.CultureInfo.InvariantCulture) ?? "";
         var currentValues = Multiple
             ? currentValue.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(v => v.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentValue };
@@ -259,9 +264,9 @@ public class SalesforcePicklistTagHelper : TagHelper
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // If metadata fetch fails, return empty list
+            // If metadata fetch fails, render an empty list rather than failing the whole view.
         }
 
         return (values, isDependentPicklist, controllerName, dependencyMap);

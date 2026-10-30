@@ -2,23 +2,16 @@ using System.Text.Json.Nodes;
 using SalesforceCore.Models.Data;
 using SalesforceCore.Models.Metadata;
 using SalesforceCore.Services.Query;
+using SalesforceCore.Query;
 
 namespace SalesforceCore.Services.Data;
 
 /// <summary>
 /// Service for Salesforce data operations (CRUD, query, files).
 /// </summary>
-public interface IDataService
+public interface IDataService : ISoqlQueryExecutor
 {
     #region Query Operations
-
-    /// <summary>
-    /// Executes a raw SOQL query.
-    /// </summary>
-    /// <param name="soql">SOQL query string.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Query result with records.</returns>
-    Task<QueryResult> QueryAsync(string soql, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Fetches the next page of query results using the nextRecordsUrl.
@@ -28,23 +21,7 @@ public interface IDataService
     /// <returns>Query result with next page of records.</returns>
     Task<QueryResult> QueryNextAsync(string nextRecordsUrl, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Executes a query and automatically fetches all pages, returning all records.
-    /// Use with caution for large datasets - consider using QueryAllAsyncEnumerable instead.
-    /// </summary>
-    /// <param name="soql">SOQL query string.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>All records from all pages.</returns>
-    Task<List<JsonObject>> QueryAllAsync(string soql, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Executes a query and streams records from all pages without loading everything into memory.
-    /// Ideal for processing large datasets efficiently.
-    /// </summary>
-    /// <param name="soql">SOQL query string.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Async enumerable of records.</returns>
-    IAsyncEnumerable<JsonObject> QueryAllAsyncEnumerable(string soql, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Executes a paged query for list views with a type-safe filter condition.

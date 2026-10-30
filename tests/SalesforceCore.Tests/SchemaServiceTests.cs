@@ -602,7 +602,7 @@ public class SchemaServiceTests
         await _service.InvalidateCacheAsync("Account");
 
         // Assert
-        _mockCache.Verify(c => c.RemoveAsync("Schema_Account"), Times.Once);
+        _mockCache.Verify(c => c.RemoveAsync("Schema_account", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -622,7 +622,7 @@ public class SchemaServiceTests
     private void SetupDescribeCache(string objectName, SObjectDescribe describe)
     {
         _mockCache.Setup(c => c.GetOrCreateAsync<SObjectDescribe>(
-                $"Schema_{objectName}",
+                $"Schema_{objectName.ToLowerInvariant()}",
                 It.IsAny<Func<CancellationToken, Task<SObjectDescribe?>>>(),
                 It.IsAny<TimeSpan>(),
                 It.IsAny<CancellationToken>()))

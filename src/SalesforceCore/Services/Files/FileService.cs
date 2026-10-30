@@ -31,9 +31,9 @@ public class FileService : IFileService
         IDataService dataService,
         ILogger<FileService> logger)
     {
-        _client = client;
-        _dataService = dataService;
-        _logger = logger;
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <inheritdoc/>
@@ -43,8 +43,7 @@ public class FileService : IFileService
         byte[] content,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(parentId))
-            throw new ArgumentException("Parent ID is required", nameof(parentId));
+        RequireId(parentId, nameof(parentId), "Parent ID");
         if (string.IsNullOrWhiteSpace(fileName))
             throw new ArgumentException("File name is required", nameof(fileName));
         if (content == null || content.Length == 0)
@@ -57,25 +56,24 @@ public class FileService : IFileService
 
         // Convert to Base64
         var base64Content = Convert.ToBase64String(content);
-        var title = Path.GetFileNameWithoutExtension(fileName);
+        // Strip any client-side directory part; fall back to the full name for dot-files like ".env".
+        var clientName = Path.GetFileName(fileName.Replace('\\', '/'));
+        if (string.IsNullOrWhiteSpace(clientName)) clientName = fileName.Trim();
+        var title = Path.GetFileNameWithoutExtension(clientName);
+        if (string.IsNullOrWhiteSpace(title)) title = clientName;
 
         // Create ContentVersion with FirstPublishLocationId to auto-create ContentDocumentLink
         var payload = new
         {
             Title = title,
-            PathOnClient = fileName,
+            PathOnClient = clientName,
             VersionData = base64Content,
             FirstPublishLocationId = parentId
         };
 
         var result = await _client.PostAsync<CreateResult>("/sobjects/ContentVersion/", payload, cancellationToken);
+        EnsureCreated(result, "ContentVersion upload");
 
-        if (!result.Success && result.Errors.Count > 0)
-        {
-            _logger.LogError("Failed to upload file {FileName}: {Errors}",
-                fileName, string.Join(", ", result.Errors.Select(e => e.Message)));
-            throw Models.Errors.SalesforceException.FromErrors(result.Errors);
-        }
 
         _logger.LogInformation("Successfully uploaded file {FileName} as ContentVersion {ContentVersionId}",
             fileName, result.Id);
@@ -93,8 +91,20 @@ public class FileService : IFileService
         if (stream == null)
             throw new ArgumentNullException(nameof(stream));
 
+        if (stream.CanSeek && stream.Length - stream.Position > MaxFileSize)
+            throw new ArgumentException($"File size exceeds maximum allowed ({MaxFileSize / (1024 * 1024)}MB)", nameof(stream));
+
+        // Copy with a hard cap so a non-seekable (network) stream cannot be buffered without bound.
         using var memoryStream = new MemoryStream();
-        await stream.CopyToAsync(memoryStream, cancellationToken);
+        var buffer = new byte[81920];
+        int read;
+        while ((read = await stream.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            if (memoryStream.Length + read > MaxFileSize)
+                throw new ArgumentException($"File size exceeds maximum allowed ({MaxFileSize / (1024 * 1024)}MB)", nameof(stream));
+            memoryStream.Write(buffer, 0, read);
+        }
+
         return await UploadAsync(parentId, fileName, memoryStream.ToArray(), cancellationToken);
     }
 
@@ -103,8 +113,7 @@ public class FileService : IFileService
         string contentVersionId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentVersionId))
-            throw new ArgumentException("ContentVersion ID is required", nameof(contentVersionId));
+        RequireId(contentVersionId, nameof(contentVersionId), "ContentVersion ID");
 
         _logger.LogDebug("Downloading file content for ContentVersion {ContentVersionId}", contentVersionId);
 
@@ -123,7 +132,7 @@ public class FileService : IFileService
             throw new ArgumentNullException(nameof(destinationStream));
 
         var content = await DownloadAsync(contentVersionId, cancellationToken);
-        await destinationStream.WriteAsync(content, 0, content.Length, cancellationToken);
+        await destinationStream.WriteAsync(content.AsMemory(), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -131,8 +140,7 @@ public class FileService : IFileService
         string parentId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(parentId))
-            throw new ArgumentException("Parent ID is required", nameof(parentId));
+        RequireId(parentId, nameof(parentId), "Parent ID");
 
         return await _dataService.GetAttachedFilesAsync(parentId, cancellationToken);
     }
@@ -166,7 +174,7 @@ public class FileService : IFileService
 
         var result = await _dataService.QueryAsync(soql, cancellationToken);
 
-        if (result.Records.Count == 0)
+        if (result?.Records is not { Count: > 0 } || result.Records[0] is null)
             return null;
 
         var record = result.Records[0];
@@ -176,12 +184,13 @@ public class FileService : IFileService
             ContentDocumentId = record["ContentDocumentId"]?.ToString() ?? string.Empty,
             Title = record["Title"]?.ToString() ?? string.Empty,
             FileExtension = record["FileExtension"]?.ToString() ?? string.Empty,
-            ContentSize = record["ContentSize"]?.GetValue<long>() ?? 0,
+            ContentSize = ReadLong(record["ContentSize"]) ?? 0,
             ContentType = record["FileType"]?.ToString(),
             CreatedDate = record["CreatedDate"].ParseDateTimeOrDefault(DateTime.MinValue),
             LastModifiedDate = record["LastModifiedDate"].ParseDateTimeOrDefault(DateTime.MinValue),
             CreatedById = record["CreatedById"]?.ToString(),
-            VersionNumber = record["VersionNumber"]?.GetValue<int>() ?? 1
+            // VersionNumber is a string field in Salesforce ("1"); GetValue<int>() threw on real responses.
+            VersionNumber = (int?)ReadLong(record["VersionNumber"]) ?? 1
         };
     }
 
@@ -190,8 +199,7 @@ public class FileService : IFileService
         string contentDocumentId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentDocumentId))
-            throw new ArgumentException("ContentDocument ID is required", nameof(contentDocumentId));
+        RequireId(contentDocumentId, nameof(contentDocumentId), "ContentDocument ID");
 
         _logger.LogDebug("Deleting ContentDocument {ContentDocumentId}", contentDocumentId);
 
@@ -208,10 +216,8 @@ public class FileService : IFileService
         string visibility = "AllUsers",
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentDocumentId))
-            throw new ArgumentException("ContentDocument ID is required", nameof(contentDocumentId));
-        if (string.IsNullOrWhiteSpace(linkedEntityId))
-            throw new ArgumentException("Linked Entity ID is required", nameof(linkedEntityId));
+        RequireId(contentDocumentId, nameof(contentDocumentId), "ContentDocument ID");
+        RequireId(linkedEntityId, nameof(linkedEntityId), "Linked Entity ID");
 
         _logger.LogDebug("Linking ContentDocument {ContentDocumentId} to record {LinkedEntityId}",
             contentDocumentId, linkedEntityId);
@@ -225,17 +231,46 @@ public class FileService : IFileService
         };
 
         var result = await _client.PostAsync<CreateResult>("/sobjects/ContentDocumentLink/", payload, cancellationToken);
+        EnsureCreated(result, "ContentDocumentLink create");
 
-        if (!result.Success && result.Errors.Count > 0)
-        {
-            _logger.LogError("Failed to link ContentDocument {ContentDocumentId} to {LinkedEntityId}: {Errors}",
-                contentDocumentId, linkedEntityId, string.Join(", ", result.Errors.Select(e => e.Message)));
-            throw Models.Errors.SalesforceException.FromErrors(result.Errors);
-        }
 
         _logger.LogInformation("Successfully linked ContentDocument {ContentDocumentId} to {LinkedEntityId}",
             contentDocumentId, linkedEntityId);
 
         return result.Id;
+    }
+
+    /// <summary>Ids are interpolated into REST paths, so anything but a 15/18-char Salesforce id is rejected.</summary>
+    private static void RequireId(string? id, string paramName, string label)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException($"{label} is required", paramName);
+        if (!SecurityUtils.IsValidSalesforceId(id))
+            throw new ArgumentException($"Invalid {label} format: {id}", paramName);
+    }
+
+    private void EnsureCreated(CreateResult? result, string operation)
+    {
+        if (result is null)
+            throw new Models.Errors.SalesforceException($"{operation} returned an empty response.");
+        if (!result.Success || string.IsNullOrEmpty(result.Id))
+        {
+            _logger.LogError("{Operation} failed: {Errors}", operation,
+                string.Join(", ", (result.Errors ?? new()).Select(e => e.Message)));
+            if (result.Errors is { Count: > 0 })
+                throw Models.Errors.SalesforceException.FromErrors(result.Errors);
+            throw new Models.Errors.SalesforceException($"{operation} did not succeed and returned no error details.");
+        }
+    }
+
+    internal static long? ReadLong(JsonNode? node)
+    {
+        if (node is not JsonValue v) return null;
+        if (v.TryGetValue<long>(out var l)) return l;
+        if (v.TryGetValue<int>(out var i)) return i;
+        if (v.TryGetValue<double>(out var d)) return (long)d;
+        if (v.TryGetValue<string>(out var str) &&
+            long.TryParse(str, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var p)) return p;
+        return null;
     }
 }

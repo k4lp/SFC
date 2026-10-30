@@ -19,19 +19,41 @@ public static class SalesforceMapper
     /// concurrently for the same key, but only one result is stored. This is safe
     /// because CreateMetadata produces independent, identical objects.
     /// </summary>
-    private static readonly ConcurrentDictionary<Type, ObjectMetadata> _metadataCache = new();
+    private static readonly ConcurrentDictionary<(Type Type, bool Strict), ObjectMetadata> _metadataCache = new();
+    private static readonly AsyncLocal<bool?> _scopedRequire = new();
     private static readonly ConcurrentDictionary<Type, EnumMap> _enumMapCache = new();
 
     /// <summary>
     /// When true, only properties with [SalesforceField] attribute are included in SOQL queries.
     /// Set via Configure() method during startup.
     /// </summary>
-    private static bool _requireSalesforceFieldAttribute = false;
+    private static volatile bool _requireSalesforceFieldAttribute = false;
 
     /// <summary>
     /// Whether only [SalesforceField]-attributed properties are mapped (process-wide setting).
     /// </summary>
-    public static bool IsSalesforceFieldAttributeRequired => _requireSalesforceFieldAttribute;
+    public static bool IsSalesforceFieldAttributeRequired => _scopedRequire.Value ?? _requireSalesforceFieldAttribute;
+
+    /// <summary>
+    /// Overrides the [SalesforceField]-required mode for the current async flow only (per client, request or test),
+    /// without touching the process-wide default. Dispose the returned scope to restore the previous mode.
+    /// Metadata is cached per (type, mode), so scopes and the global default never see each other's mappings.
+    /// </summary>
+    public static IDisposable UseFieldAttributeMode(bool requireSalesforceFieldAttribute)
+    {
+        var previous = _scopedRequire.Value;
+        _scopedRequire.Value = requireSalesforceFieldAttribute;
+        return new ModeScope(previous);
+    }
+
+    private sealed class ModeScope(bool? previous) : IDisposable
+    {
+        private int _disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) _scopedRequire.Value = previous;
+        }
+    }
 
     /// <summary>
     /// Configures the SalesforceMapper behavior (process-wide). Applied automatically from
@@ -42,8 +64,8 @@ public static class SalesforceMapper
     /// </param>
     public static void Configure(bool requireSalesforceFieldAttribute)
     {
+        // Metadata is keyed by mode, so no cache clear is needed (and no stale entry can race in).
         _requireSalesforceFieldAttribute = requireSalesforceFieldAttribute;
-        ClearCache(); // Clear cached metadata so new settings take effect
     }
 
     /// <summary>
@@ -280,10 +302,10 @@ public static class SalesforceMapper
 
     private static ObjectMetadata GetOrCreateMetadata(Type type)
     {
-        return _metadataCache.GetOrAdd(type, CreateMetadata);
+        return _metadataCache.GetOrAdd((type, IsSalesforceFieldAttributeRequired), static key => CreateMetadata(key.Type, key.Strict));
     }
 
-    private static ObjectMetadata CreateMetadata(Type type)
+    private static ObjectMetadata CreateMetadata(Type type, bool strict)
     {
         var objectAttr = type.GetCustomAttribute<SalesforceObjectAttribute>();
         var objectName = objectAttr?.ObjectName ?? type.Name;
@@ -305,7 +327,7 @@ public static class SalesforceMapper
             // Skip properties without public getter
             if (property.GetMethod == null || !property.GetMethod.IsPublic) continue;
 
-            var mapping = CreatePropertyMapping(property);
+            var mapping = CreatePropertyMapping(property, strict);
             metadata.PropertyMappings[property.Name] = mapping;
         }
 
@@ -315,7 +337,7 @@ public static class SalesforceMapper
         return metadata;
     }
 
-    private static PropertyMapping CreatePropertyMapping(PropertyInfo property)
+    private static PropertyMapping CreatePropertyMapping(PropertyInfo property, bool strict)
     {
         var fieldAttr = property.GetCustomAttribute<SalesforceFieldAttribute>();
         var ignoreAttr = property.GetCustomAttribute<SalesforceIgnoreAttribute>();
@@ -341,7 +363,7 @@ public static class SalesforceMapper
         var hasExplicitMapping = fieldAttr != null || childRelAttr != null || lookupAttr != null;
         
         // When RequireSalesforceFieldAttribute is enabled, unmapped properties (except Id) are ignored
-        var isUnmappedInStrictMode = _requireSalesforceFieldAttribute 
+        var isUnmappedInStrictMode = strict 
             && !hasExplicitMapping 
             && !isId 
             && externalIdAttr == null;

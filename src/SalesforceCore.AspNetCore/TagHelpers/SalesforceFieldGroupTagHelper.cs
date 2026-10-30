@@ -181,7 +181,7 @@ public class SalesforceFieldGroupTagHelper : TagHelper
             var fieldMap = await _schemaService.GetFieldMapAsync(ObjectName);
             return fieldMap.TryGetValue(fieldName, out var field) ? field : null;
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return null;
         }
@@ -229,7 +229,7 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         var requiredMark = isRequired ? " <span class=\"text-danger\">*</span>" : "";
         var inputClasses = "form-control" + (!string.IsNullOrEmpty(InputClass) ? " " + InputClass : "");
 
-        var html = $@"<label for=""{inputId}"" class=""form-label"">{System.Web.HttpUtility.HtmlEncode(label)}{requiredMark}</label>
+        var html = $@"<label for=""{A(inputId)}"" class=""form-label"">{System.Web.HttpUtility.HtmlEncode(label)}{requiredMark}</label>
 ";
 
         html += BuildInputHtml(fieldName, inputId, inputClasses, isRequired, fieldMeta, currentValue);
@@ -240,7 +240,7 @@ public class SalesforceFieldGroupTagHelper : TagHelper
 ";
         }
 
-        html += $@"<span class=""text-danger field-validation-valid"" data-valmsg-for=""{fieldName}"" data-valmsg-replace=""true""></span>
+        html += $@"<span class=""text-danger field-validation-valid"" data-valmsg-for=""{A(fieldName)}"" data-valmsg-replace=""true""></span>
 ";
 
         return html;
@@ -258,7 +258,7 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         var requiredMark = isRequired ? " <abbr class=\"slds-required\" title=\"required\">* </abbr>" : "";
         var inputClasses = "slds-input" + (!string.IsNullOrEmpty(InputClass) ? " " + InputClass : "");
 
-        var html = $@"<label class=""slds-form-element__label"" for=""{inputId}"">{requiredMark}{System.Web.HttpUtility.HtmlEncode(label)}</label>
+        var html = $@"<label class=""slds-form-element__label"" for=""{A(inputId)}"">{requiredMark}{System.Web.HttpUtility.HtmlEncode(label)}</label>
 <div class=""slds-form-element__control"">
 ";
 
@@ -287,7 +287,7 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         var requiredMark = isRequired ? " *" : "";
         var inputClasses = !string.IsNullOrEmpty(InputClass) ? InputClass : "";
 
-        var html = $@"<label for=""{inputId}"">{System.Web.HttpUtility.HtmlEncode(label)}{requiredMark}</label>
+        var html = $@"<label for=""{A(inputId)}"">{System.Web.HttpUtility.HtmlEncode(label)}{requiredMark}</label>
 ";
 
         html += BuildInputHtml(fieldName, inputId, inputClasses, isRequired, fieldMeta, currentValue);
@@ -298,7 +298,7 @@ public class SalesforceFieldGroupTagHelper : TagHelper
 ";
         }
 
-        html += $@"<span class=""sf-validation-message"" data-valmsg-for=""{fieldName}""></span>
+        html += $@"<span class=""sf-validation-message"" data-valmsg-for=""{A(fieldName)}""></span>
 ";
 
         return html;
@@ -316,22 +316,22 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         var readonlyAttr = ReadOnly ? " readonly" : "";
         var requiredAttr = isRequired ? " required" : "";
         var maxLengthAttr = fieldMeta?.Length > 0 ? $" maxlength=\"{fieldMeta.Length}\"" : "";
-        var valueStr = currentValue?.ToString() ?? "";
+        var valueStr = Convert.ToString(currentValue, System.Globalization.CultureInfo.InvariantCulture) ?? "";
         var encodedValue = System.Web.HttpUtility.HtmlAttributeEncode(valueStr);
 
         // Handle special field types
         if (fieldMeta?.IsPicklist == true)
         {
             // Return a placeholder that will be replaced by sf-picklist
-            var rtIdAttr = !string.IsNullOrEmpty(RecordTypeId) ? $" sf-record-type-id=\"{RecordTypeId}\"" : "";
-            return $@"<sf-picklist asp-for=""{For?.Name ?? fieldName}"" sf-object=""{ObjectName}"" sf-picklist-field=""{fieldMeta.Name}"" class=""{inputClasses}""{requiredAttr}{readonlyAttr}{rtIdAttr}></sf-picklist>
+            var rtIdAttr = !string.IsNullOrEmpty(RecordTypeId) ? $" sf-record-type-id=\"{A(RecordTypeId)}\"" : "";
+            return $@"<sf-picklist asp-for=""{A(For?.Name ?? fieldName)}"" sf-object=""{A(ObjectName)}"" sf-picklist-field=""{A(fieldMeta.Name)}"" class=""{A(inputClasses)}""{requiredAttr}{readonlyAttr}{rtIdAttr}></sf-picklist>
 ";
         }
 
         if (fieldMeta?.IsLookup == true)
         {
             // Return a placeholder that will be replaced by sf-lookup
-            return $@"<sf-lookup asp-for=""{For?.Name ?? fieldName}"" sf-object=""{ObjectName}"" sf-field=""{fieldMeta.Name}"" class=""{inputClasses}""{requiredAttr}></sf-lookup>
+            return $@"<sf-lookup asp-for=""{A(For?.Name ?? fieldName)}"" sf-object=""{A(ObjectName)}"" sf-field=""{A(fieldMeta.Name)}"" class=""{A(inputClasses)}""{requiredAttr}></sf-lookup>
 ";
         }
 
@@ -339,52 +339,52 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         return fieldType switch
         {
             "textarea" or "longtextarea" or "richtextarea" =>
-                $@"<textarea id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" rows=""4""{requiredAttr}{readonlyAttr}{maxLengthAttr}>{System.Web.HttpUtility.HtmlEncode(valueStr)}</textarea>
+                $@"<textarea id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" rows=""4""{requiredAttr}{readonlyAttr}{maxLengthAttr}>{System.Web.HttpUtility.HtmlEncode(valueStr)}</textarea>
 ",
 
             "boolean" =>
                 $@"<div class=""form-check"">
-    <input type=""checkbox"" id=""{inputId}"" name=""{fieldName}"" class=""form-check-input"" value=""true""{(currentValue?.ToString()?.ToLower() == "true" ? " checked" : "")}{readonlyAttr} />
+    <input type=""checkbox"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""form-check-input"" value=""true""{(string.Equals(valueStr, "true", StringComparison.OrdinalIgnoreCase) ? " checked" : "")}{readonlyAttr} />
 </div>
 ",
 
             "date" =>
-                $@"<input type=""date"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{FormatDateValue(currentValue, "yyyy-MM-dd")}""{requiredAttr}{readonlyAttr} />
+                $@"<input type=""date"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{A(FormatDateValue(currentValue, "yyyy-MM-dd"))}""{requiredAttr}{readonlyAttr} />
 ",
 
             "datetime" =>
-                $@"<input type=""datetime-local"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{FormatDateValue(currentValue, "yyyy-MM-ddTHH:mm")}""{requiredAttr}{readonlyAttr} />
+                $@"<input type=""datetime-local"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{A(FormatDateValue(currentValue, "yyyy-MM-ddTHH:mm"))}""{requiredAttr}{readonlyAttr} />
 ",
 
             "time" =>
-                $@"<input type=""time"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{FormatTimeValue(currentValue)}""{requiredAttr}{readonlyAttr} />
+                $@"<input type=""time"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{A(FormatTimeValue(currentValue))}""{requiredAttr}{readonlyAttr} />
 ",
 
             "email" =>
-                $@"<input type=""email"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
+                $@"<input type=""email"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
 ",
 
             "phone" =>
-                $@"<input type=""tel"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
+                $@"<input type=""tel"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
 ",
 
             "url" =>
-                $@"<input type=""url"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
+                $@"<input type=""url"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
 ",
 
             "int" =>
-                $@"<input type=""number"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}"" step=""1""{requiredAttr}{readonlyAttr} />
+                $@"<input type=""number"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}"" step=""1""{requiredAttr}{readonlyAttr} />
 ",
 
             "double" or "currency" or "percent" =>
                 BuildNumberInput(inputId, fieldName, inputClasses, encodedValue, requiredAttr, readonlyAttr, fieldMeta),
 
             "encryptedstring" =>
-                $@"<input type=""password"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value="""" placeholder=""(encrypted)"" autocomplete=""new-password""{readonlyAttr}{maxLengthAttr} />
+                $@"<input type=""password"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value="""" placeholder=""(encrypted)"" autocomplete=""new-password""{readonlyAttr}{maxLengthAttr} />
 ",
 
             _ =>
-                $@"<input type=""text"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
+                $@"<input type=""text"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}""{requiredAttr}{readonlyAttr}{maxLengthAttr} />
 "
         };
     }
@@ -419,13 +419,13 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         {
             return $@"<div class=""input-group"">
     {(prefix != "" ? $"<span class=\"input-group-text\">{prefix}</span>" : "")}
-    <input type=""number"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}"" step=""{step}""{requiredAttr}{readonlyAttr} />
+    <input type=""number"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}"" step=""{step}""{requiredAttr}{readonlyAttr} />
     {(suffix != "" ? $"<span class=\"input-group-text\">{suffix}</span>" : "")}
 </div>
 ";
         }
 
-        return $@"<input type=""number"" id=""{inputId}"" name=""{fieldName}"" class=""{inputClasses}"" value=""{encodedValue}"" step=""{step}""{requiredAttr}{readonlyAttr} />
+        return $@"<input type=""number"" id=""{A(inputId)}"" name=""{A(fieldName)}"" class=""{A(inputClasses)}"" value=""{encodedValue}"" step=""{step}""{requiredAttr}{readonlyAttr} />
 ";
     }
 
@@ -434,16 +434,16 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         if (value == null) return "";
 
         if (value is DateTime dt)
-            return dt.ToString(format);
+            return dt.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
         if (value is DateOnly d)
-            return d.ToString(format);
+            return d.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
         if (value is DateTimeOffset dto)
-            return dto.ToString(format);
+            return dto.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
-        if (DateTime.TryParse(value.ToString(), out var parsed))
-            return parsed.ToString(format);
+        if (DateTime.TryParse(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed))
+            return parsed.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
         return value.ToString() ?? "";
     }
@@ -453,14 +453,17 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         if (value == null) return "";
 
         if (value is TimeOnly t)
-            return t.ToString("HH:mm");
+            return t.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
         if (value is TimeSpan ts)
             return $"{ts.Hours:D2}:{ts.Minutes:D2}";
 
         if (value is DateTime dt)
-            return dt.ToString("HH:mm");
+            return dt.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
         return value.ToString() ?? "";
     }
+
+    /// <summary>Attribute-encodes every interpolated value (object/field names and record type ids can come from request data).</summary>
+    private static string A(string? value) => System.Web.HttpUtility.HtmlAttributeEncode(value ?? string.Empty);
 }

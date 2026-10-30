@@ -351,15 +351,15 @@ public class ScanFixesV130Tests
         var a = CaptureDescribeKeys(new SalesforceOptions(), new FixedUser("005A")).Single();
         var b = CaptureDescribeKeys(new SalesforceOptions(), new FixedUser("005B")).Single();
         a.Should().NotBe(b);
-        a.Should().StartWith("Schema_Account_u");
+        a.Should().StartWith("Schema_account_u");
     }
 
     [Fact]
     public void SchemaCache_SharedWhenNoUserOrOptedOut()
     {
-        CaptureDescribeKeys(new SalesforceOptions(), new FixedUser(null)).Single().Should().Be("Schema_Account");
-        CaptureDescribeKeys(new SalesforceOptions { PartitionSchemaCacheByUser = false }, new FixedUser("005A")).Single().Should().Be("Schema_Account");
-        CaptureDescribeKeys(new SalesforceOptions(), null).Single().Should().Be("Schema_Account");
+        CaptureDescribeKeys(new SalesforceOptions(), new FixedUser(null)).Single().Should().Be("Schema_account");
+        CaptureDescribeKeys(new SalesforceOptions { PartitionSchemaCacheByUser = false }, new FixedUser("005A")).Single().Should().Be("Schema_account");
+        CaptureDescribeKeys(new SalesforceOptions(), null).Single().Should().Be("Schema_account");
     }
 
     // ---------------- SFC-08 allow-list ----------------
