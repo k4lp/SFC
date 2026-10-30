@@ -46,3 +46,30 @@ Set `ThrowOnError = false` to receive error responses instead of exceptions.
 `tests/SalesforceCore.Tests/TestKit` contains `FakeSalesforceServer` (route table + request journal), `SalesforceTestHost`
 (the real composition root wired to the fake server) and `DescribeBuilder`. Copy it into your own test project to test
 code that uses SalesforceCore without an org.
+
+## 2.1: plug-in query executors and per-flow mapping mode
+
+The LINQ provider depends only on `SalesforceCore.Query.ISoqlQueryExecutor`, so you can back
+`SalesforceQueryable<T>` with anything that runs SOQL: a caching decorator, a replay log, a fake in tests.
+
+```csharp
+public sealed class CachingExecutor(IDataService inner, IMemoryCache cache) : ISoqlQueryExecutor
+{
+    public Task<QueryResult> QueryAsync(string soql, CancellationToken ct = default)
+        => cache.GetOrCreateAsync(soql, _ => inner.QueryAsync(soql, ct))!;
+    public Task<List<JsonObject>> QueryAllAsync(string soql, CancellationToken ct = default) => inner.QueryAllAsync(soql, ct);
+    public IAsyncEnumerable<JsonObject> QueryAllAsyncEnumerable(string soql, CancellationToken ct = default) => inner.QueryAllAsyncEnumerable(soql, ct);
+}
+
+var accounts = await new CachingExecutor(data, cache).Query<Account>().Where(a => a.Industry == "Tech").ToListAsync(ct);
+```
+
+`SalesforceOptions.RequireSalesforceFieldAttribute` sets the process-wide default. To use the other mode for one
+client, request or test without affecting anything else:
+
+```csharp
+using (SalesforceMapper.UseFieldAttributeMode(requireSalesforceFieldAttribute: true))
+{
+    var rows = await typed.GetAllAsync<Contact>(ct); // only [SalesforceField] properties are selected
+}
+```

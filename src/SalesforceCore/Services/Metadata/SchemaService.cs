@@ -61,7 +61,7 @@ public class SchemaService : ISchemaService
             return null;
         }
 
-        var cacheKey = $"{SchemaCachePrefix}{sObject}{UserPartition()}";
+        var cacheKey = SchemaCacheKey(sObject);
 
         return await _cache.GetOrCreateAsync(
             cacheKey,
@@ -248,19 +248,26 @@ public class SchemaService : ISchemaService
     }
 
     /// <inheritdoc/>
-    public async Task InvalidateCacheAsync(string? sObject = null)
+    public async Task InvalidateCacheAsync(string? sObject = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sObject))
         {
-            await _cache.RemoveAsync(GlobalDescribeCacheKey + UserPartition());
+            await _cache.RemoveAsync(GlobalDescribeCacheKey + UserPartition(), cancellationToken);
             _logger.LogInformation("Schema cache invalidated for global describe");
         }
         else
         {
-            await _cache.RemoveAsync($"{SchemaCachePrefix}{sObject}{UserPartition()}");
+            await _cache.RemoveAsync(SchemaCacheKey(sObject), cancellationToken);
             _logger.LogInformation("Schema cache invalidated for {SObject}", sObject);
         }
     }
+
+    /// <summary>
+    /// sObject API names are case-insensitive in Salesforce, so the cache key is normalised; otherwise
+    /// "account" and "Account" were cached separately and invalidating one left the other stale.
+    /// </summary>
+    internal string SchemaCacheKey(string sObject) =>
+        $"{SchemaCachePrefix}{sObject.Trim().ToLowerInvariant()}{UserPartition()}";
 
     /// <summary>
     /// SFC-07: describe results are evaluated for the calling user (accessible/createable/updateable flags reflect
@@ -274,19 +281,7 @@ public class SchemaService : ISchemaService
             return string.Empty;
         }
 
-        var user = _userContextProvider.GetUser();
-        if (user?.Identity?.IsAuthenticated != true)
-        {
-            return string.Empty;
-        }
-
-        var id = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? user.FindFirst("sub")?.Value;
-        if (string.IsNullOrEmpty(id))
-        {
-            return string.Empty;
-        }
-
-        return "_u" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id)), 0, 8);
+        return Caching.UserCachePartition.For(_userContextProvider);
     }
 
     private static bool IsExcludedFieldType(string type)

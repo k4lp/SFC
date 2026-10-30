@@ -297,7 +297,7 @@ public class PermissionService : IPermissionService
             _logger.LogInformation("Invalidating all permission cache entries");
             // For distributed cache, we'd need to track keys or use a prefix pattern
             // For now, we invalidate schema cache which will force permission refresh
-            await _schemaService.InvalidateCacheAsync(null);
+            await _schemaService.InvalidateCacheAsync(null, cancellationToken);
         }
         else
         {

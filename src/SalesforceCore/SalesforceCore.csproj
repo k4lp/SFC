@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore</PackageId>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore</Product>
@@ -19,7 +19,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>2.0.0: breaking architecture release - no access gating (Salesforce enforces CRUD/FLS), new SalesforceCore.Abstractions and SalesforceCore.SqlServer packages, composable HTTP pipeline, typed errors, valid default resilience pipeline, Bulk 2.0 PATCH fixes. See MIGRATION.md and CHANGELOG.md.</PackageReleaseNotes>
+    <PackageReleaseNotes>2.1.0: robustness release - cancellation everywhere, no sync-over-async deadlocks, Query no longer depends on Data (ISoqlQueryExecutor), per-flow mapper mode, per-user lookup cache, pagination loop guard, atomic typed upsert, file/tag-helper hardening. See CHANGELOG.md and MIGRATION.md.</PackageReleaseNotes>
     <Copyright>Copyright (c) 2024 SalesforceCore Contributors</Copyright>
 
     <!-- Build Settings -->

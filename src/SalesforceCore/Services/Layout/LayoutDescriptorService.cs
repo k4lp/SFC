@@ -552,7 +552,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         if (string.IsNullOrEmpty(objectName))
         {
             await _permissionService.InvalidateCacheAsync(null, cancellationToken);
-            await _schemaService.InvalidateCacheAsync(null);
+            await _schemaService.InvalidateCacheAsync(null, cancellationToken);
             foreach (var key in _knownLayoutCacheKeys.Keys.ToList())
             {
                 await _cacheProvider.RemoveAsync(key, cancellationToken);
@@ -562,7 +562,7 @@ public class LayoutDescriptorService : ILayoutDescriptorService
         else
         {
             await _permissionService.InvalidateCacheAsync(objectName, cancellationToken);
-            await _schemaService.InvalidateCacheAsync(objectName);
+            await _schemaService.InvalidateCacheAsync(objectName, cancellationToken);
 
             // Clear specific layout caches for known users
             var suffixes = _knownUserSuffixes.Keys.ToList();

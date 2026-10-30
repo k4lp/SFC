@@ -1,3 +1,23 @@
+# Migrating to SalesforceCore 2.1
+
+<a id="21"></a>
+2.1.0 is source-compatible for typical apps. Recompile; only these edge cases need attention:
+
+| Change | Impact |
+|---|---|
+| `IDataService.QueryAsync/QueryAllAsync/QueryAllAsyncEnumerable` moved to the base interface `ISoqlQueryExecutor` | Callers and Moq setups are unchanged. Binary break only: recompile assemblies that implement or call `IDataService`. |
+| `SalesforceQueryable<T>`/`SalesforceQueryProvider` constructors and `Query<T>()` now take `ISoqlQueryExecutor` | `IDataService` converts implicitly — source compatible; recompile. |
+| `ISchemaService.InvalidateCacheAsync(string?, CancellationToken = default)` | Custom `ISchemaService` implementations must add the parameter. |
+| `ModelGenerator` describe types are now `SalesforceCore.Models.Metadata.*` (`FieldDescribe`→`SObjectField`, `PicklistValue`→`PicklistEntry`) | Only affects code that referenced the generator's own copies. |
+| Lookup cache is per user by default | Set `PartitionLookupCacheByUser = false` for single-integration-user apps that want one shared cache. |
+| Lookup search no longer treats `%`/`_` in the user's query as wildcards | Intended; pass a `Filter` with `SoqlCondition.Like` for explicit patterns. |
+| `TypedDataService.UpsertAsync` uses the external-id `PATCH` | One request instead of two; Salesforce returns 300 if the external id is not unique. |
+| `FileService` validates ids (15/18-char) | Invalid ids now throw `ArgumentException` before any request. |
+| Schema cache keys are lower-cased | Old entries simply age out. |
+| `SalesforceMapper.Configure` no longer clears the cache | Not needed: metadata is cached per mode. |
+
+---
+
 # Migrating from SalesforceCore 1.x to 2.0
 
 2.0.0 is a breaking release. Most apps only need the steps in **1** and **2**; the rest is reference.

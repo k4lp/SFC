@@ -14,7 +14,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore.ModelGenerator</PackageId>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore Model Generator</Product>
@@ -34,6 +34,10 @@
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SalesforceCore.Tests" />
   </ItemGroup>
 
   <ItemGroup>

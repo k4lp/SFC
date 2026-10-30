@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SalesforceCore.Mapping;
 using SalesforceCore.Services.Core;
-using SalesforceCore.Services.Data;
 using SalesforceCore.Services.Query;
 using SalesforceCore.Utilities;
 
@@ -27,13 +26,13 @@ public class SalesforceQueryable<T> : IOrderedQueryable<T> where T : class, new(
     /// <summary>
     /// Creates a new Salesforce queryable.
     /// </summary>
-    public SalesforceQueryable(IDataService dataService)
+    public SalesforceQueryable(ISoqlQueryExecutor dataService)
     {
         _provider = new SalesforceQueryProvider(dataService);
         _expression = Expression.Constant(this);
     }
 
-    public SalesforceQueryable(IDataService dataService, ILogger<SalesforceQueryProvider> logger)
+    public SalesforceQueryable(ISoqlQueryExecutor dataService, ILogger<SalesforceQueryProvider> logger)
     {
         _provider = new SalesforceQueryProvider(dataService, logger);
         _expression = Expression.Constant(this);
@@ -141,10 +140,10 @@ internal class SalesforceProjectionQueryable<T> : IOrderedQueryable<T>
 /// </summary>
 public class SalesforceQueryProvider : IQueryProvider
 {
-    private readonly IDataService _dataService;
+    private readonly ISoqlQueryExecutor _dataService;
     private readonly ILogger<SalesforceQueryProvider> _logger;
 
-    public SalesforceQueryProvider(IDataService dataService, ILogger<SalesforceQueryProvider>? logger = null)
+    public SalesforceQueryProvider(ISoqlQueryExecutor dataService, ILogger<SalesforceQueryProvider>? logger = null)
     {
         _dataService = dataService ?? throw new ArgumentNullException(nameof(dataService));
         _logger = logger ?? NullLogger<SalesforceQueryProvider>.Instance;
@@ -271,24 +270,36 @@ public class SalesforceQueryProvider : IQueryProvider
         if (sequenceElementType != null)
         {
             var sourceEntityType = GetRootElementType(expression);
-            return ExecuteListAsync(
-                    expression,
-                    sequenceElementType,
-                    sourceEntityType,
-                    CancellationToken.None,
-                    limit: null)
-                .GetAwaiter()
-                .GetResult();
+            return RunSync(() => ExecuteListAsync(
+                expression,
+                sequenceElementType,
+                sourceEntityType,
+                CancellationToken.None,
+                limit: null));
         }
 
-        return ExecuteInternalAsync<object>(expression, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        return RunSync(() => ExecuteInternalAsync<object>(expression, CancellationToken.None));
     }
 
     public TResult Execute<TResult>(Expression expression)
     {
-        return ExecuteInternalAsync<TResult>(expression, CancellationToken.None).GetAwaiter().GetResult();
+        ArgumentNullException.ThrowIfNull(expression);
+        return RunSync(() => ExecuteInternalAsync<TResult>(expression, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// <see cref="IQueryProvider"/> is synchronous by contract. Prefer the *Async operators; when the sync path is used
+    /// under a SynchronizationContext (WinForms/WPF/legacy ASP.NET) the work is offloaded to the thread pool so the
+    /// blocking wait cannot deadlock on the captured context. Exceptions are rethrown unwrapped.
+    /// </summary>
+    internal static T RunSync<T>(Func<Task<T>> work)
+    {
+        if (SynchronizationContext.Current is null && TaskScheduler.Current == TaskScheduler.Default)
+        {
+            return work().GetAwaiter().GetResult();
+        }
+
+        return Task.Run(work).GetAwaiter().GetResult();
     }
 
     public async Task<List<T>> ExecuteAsync<T>(Expression expression, CancellationToken cancellationToken, int? limit = null)
@@ -1430,12 +1441,12 @@ public static class SalesforceQueryExtensions
     /// <summary>
     /// Creates a queryable for a Salesforce object type.
     /// </summary>
-    public static SalesforceQueryable<T> Query<T>(this IDataService dataService) where T : class, new()
+    public static SalesforceQueryable<T> Query<T>(this ISoqlQueryExecutor dataService) where T : class, new()
     {
         return new SalesforceQueryable<T>(dataService);
     }
 
-    public static SalesforceQueryable<T> Query<T>(this IDataService dataService, ILogger<SalesforceQueryProvider> logger)
+    public static SalesforceQueryable<T> Query<T>(this ISoqlQueryExecutor dataService, ILogger<SalesforceQueryProvider> logger)
         where T : class, new()
     {
         return new SalesforceQueryable<T>(dataService, logger);

@@ -1,9 +1,8 @@
 using System.Linq.Expressions;
 using SalesforceCore.Mapping;
 using SalesforceCore.Models.Data;
-using SalesforceCore.Query; // Keep this
-using SalesforceCore.Services.Query; // Add this for SoqlBuilder if namespaces differ?
-// Wait, TypedDataService has `using SalesforceCore.Query;` which contains `SalesforceQueryable`.
+using SalesforceCore.Query;
+using SalesforceCore.Services.Query;
 // `SoqlBuilder` is in `SalesforceCore.Services.Query`.
 using SoqlBuilder = SalesforceCore.Services.Query.SoqlBuilder; // Explicit alias or using
 
@@ -218,33 +217,17 @@ public class TypedDataService : ITypedDataService
             throw new InvalidOperationException($"Record must have a non-null value for external ID field '{externalIdField}'");
         }
 
-        // For upsert, we use PATCH with the external ID in the URL
-        // Note: This requires custom implementation or using composite/bulk APIs
-        // For now, we'll do a simple check-and-create/update pattern
-
-        var externalId = externalIdValue.ToString()!;
-
-        // Use SoqlBuilder to prevent injection
-        var builder = new SoqlBuilder(objectName)
-            .Select("Id")
-            .Where(externalIdField, externalId)
-            .Limit(1);
-
-        var result = await _dataService.QueryAsync(builder.Build(), cancellationToken);
-
-        if (result.Records.Count > 0)
+        var externalId = Convert.ToString(externalIdValue, System.Globalization.CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(externalId))
         {
-            // Update existing
-            var existingId = result.Records[0]["Id"]!.ToString()!;
-            data.Remove(externalIdField); // Don't try to update the external ID
-            await _dataService.UpdateRecordAsync(objectName, existingId, data, cancellationToken);
-            return existingId;
+            throw new InvalidOperationException($"Record must have a non-empty value for external ID field '{externalIdField}'");
         }
-        else
-        {
-            // Create new
-            return await _dataService.CreateRecordAsync(objectName, data, cancellationToken);
-        }
+
+        // Atomic server-side upsert (PATCH /sobjects/{object}/{field}/{value}). The previous query-then-create
+        // pattern raced: two concurrent callers could both see "not found" and create duplicates.
+        data.Remove(externalIdField);
+        var result = await _dataService.UpsertRecordAsync(objectName, externalIdField, externalId, data, cancellationToken);
+        return result.Id;
     }
 
     public async Task<int> CountAsync<T>(Expression<Func<T, bool>>? predicate = null, CancellationToken cancellationToken = default) where T : class, new()

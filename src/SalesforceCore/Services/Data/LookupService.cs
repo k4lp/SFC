@@ -22,6 +22,7 @@ public class LookupService : ILookupService
     private readonly ICacheProvider _cache;
     private readonly SalesforceOptions _options;
     private readonly ILogger<LookupService> _logger;
+    private readonly Authorization.IUserContextProvider? _userContextProvider;
 
     private const string LookupCachePrefix = "Lookup_";
     private const string RecentItemsCachePrefix = "Recent_";
@@ -34,13 +35,15 @@ public class LookupService : ILookupService
         ISchemaService schemaService,
         ICacheProvider cache,
         IOptions<SalesforceOptions> options,
-        ILogger<LookupService> logger)
+        ILogger<LookupService> logger,
+        Authorization.IUserContextProvider? userContextProvider = null)
     {
-        _client = client;
-        _schemaService = schemaService;
-        _cache = cache;
-        _options = options.Value;
-        _logger = logger;
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _schemaService = schemaService ?? throw new ArgumentNullException(nameof(schemaService));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _userContextProvider = userContextProvider;
     }
 
     /// <inheritdoc/>
@@ -48,8 +51,15 @@ public class LookupService : ILookupService
         LookupSearchOptions options,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        if (!SecurityUtils.IsValidObjectName(options.TargetObject))
+            throw new ArgumentException("Invalid object name", nameof(options));
+
+        var limit = Math.Clamp(options.Limit, 1, 200); // SFC-12
+
         // Generate cache key based on search parameters
-        var cacheKey = GenerateSearchCacheKey(options);
+        var cacheKey = GenerateSearchCacheKey(options, limit)
+            + (_options.PartitionLookupCacheByUser ? UserCachePartition.For(_userContextProvider) : string.Empty);
 
         var cached = await _cache.GetAsync<LookupSearchResult>(cacheKey, cancellationToken);
         if (cached != null)
@@ -87,13 +97,14 @@ public class LookupService : ILookupService
             var queryBuilder = SoqlBuilder.From(options.TargetObject)
                 .Select(validFields)
                 .OrderBy(nameField)
-                .Limit(Math.Clamp(options.Limit, 1, 200)); // SFC-12
+                .Limit(limit);
 
             // Multi-field search conditions
             if (searchFields.Any() && !string.IsNullOrEmpty(options.Query))
             {
                 var searchConditions = searchFields
-                    .Select(f => SoqlCondition.Like(f, $"%{options.Query}%"))
+                    // Literal contains-match: % and _ typed by the user are escaped, not treated as wildcards.
+                    .Select(f => SoqlCondition.Contains(f, options.Query))
                     .ToArray();
                 queryBuilder.WhereCondition(SoqlCondition.Or(searchConditions));
             }
@@ -113,8 +124,10 @@ public class LookupService : ILookupService
             var soql = queryBuilder.Build();
             var queryResult = await _client.GetAsync<QueryResult>($"/query/?q={UrlUtils.Escape(soql)}", cancellationToken);
 
-            foreach (var record in queryResult.Records)
+            var records = queryResult?.Records ?? new List<JsonObject>();
+            foreach (var record in records)
             {
+                if (record is null) continue;
                 var item = CreateLookupItem(record, options.TargetObject, nameField, contextFields);
                 item.Score = CalculateScore(item.DisplayName, options.Query);
                 result.Items.Add(item);
@@ -122,10 +135,14 @@ public class LookupService : ILookupService
 
             // Sort by score descending
             result.Items = result.Items.OrderByDescending(i => i.Score).ToList();
-            result.HasMore = queryResult.Records.Count >= options.Limit;
+            result.HasMore = (queryResult?.Done == false) || records.Count >= limit;
 
             // Cache the result
             await _cache.SetAsync(cacheKey, result, _options.LookupCacheDuration, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -179,12 +196,18 @@ public class LookupService : ILookupService
         int limit = 5,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(targetObjects);
+        var targets = targetObjects
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         var result = new LookupSearchResult
         {
             SearchQuery = query
         };
 
-        var tasks = targetObjects.Select(async obj =>
+        var tasks = targets.Select(async obj =>
         {
             var searchResult = await SearchAsync(new LookupSearchOptions
             {
@@ -201,7 +224,7 @@ public class LookupService : ILookupService
         result.Items = allResults
             .SelectMany(items => items)
             .OrderByDescending(i => i.Score)
-            .Take(limit * targetObjects.Count())
+            .Take(Math.Max(1, limit) * targets.Count)
             .ToList();
 
         return result;
@@ -235,8 +258,9 @@ public class LookupService : ILookupService
 
             var queryResult = await _client.GetAsync<QueryResult>($"/query/?q={UrlUtils.Escape(soql)}", cancellationToken);
 
-            foreach (var record in queryResult.Records)
+            foreach (var record in queryResult?.Records ?? new List<JsonObject>())
             {
+                if (record is null) continue;
                 items.Add(new LookupResultItem
                 {
                     Id = record["Id"]?.ToString() ?? "",
@@ -245,6 +269,10 @@ public class LookupService : ILookupService
                     IsRecent = true
                 });
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -323,15 +351,18 @@ public class LookupService : ILookupService
         return item;
     }
 
-    private static string GenerateSearchCacheKey(LookupSearchOptions options)
+    internal static string GenerateSearchCacheKey(LookupSearchOptions options, int limit)
     {
         // Create a deterministic cache key from search parameters
         var keyParts = new List<string>
         {
             LookupCachePrefix,
-            options.TargetObject,
+            options.TargetObject.ToLowerInvariant(),
             options.Query?.ToLowerInvariant() ?? "",
-            options.Limit.ToString()
+            limit.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            // Field lists change the result shape, so they must be part of the key.
+            "s:" + (options.SearchFields is null ? "*" : string.Join(",", options.SearchFields)),
+            "c:" + (options.ContextFields is null ? "*" : string.Join(",", options.ContextFields))
         };
 
         if (!string.IsNullOrEmpty(options.ParentField))
@@ -342,11 +373,14 @@ public class LookupService : ILookupService
 
         if (options.Filter != null)
         {
-            // Use the rendered condition for cache key uniqueness
-            keyParts.Add(options.Filter.GetHashCode().ToString());
+            // Use the rendered condition (not GetHashCode(), which is per-instance) so equal filters share an entry.
+            keyParts.Add("f:" + options.Filter.Render());
         }
 
-        return string.Join("_", keyParts);
+        // Hash the variable part so user input cannot produce oversized or delimiter-colliding keys.
+        var raw = string.Join("\u001f", keyParts.Skip(1));
+        return LookupCachePrefix + options.TargetObject.ToLowerInvariant() + "_"
+            + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw)), 0, 16);
     }
 
     private List<string> GetDefaultSearchFields(string objectType)

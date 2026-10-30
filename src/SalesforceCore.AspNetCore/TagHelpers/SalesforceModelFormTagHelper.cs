@@ -317,7 +317,12 @@ public class SalesforceModelFormTagHelper : TagHelper
         // Anti-forgery token
         if (IncludeAntiforgery)
         {
-            html += "<input name=\"__RequestVerificationToken\" type=\"hidden\" value=\"\" data-sf-antiforgery=\"true\" />\n";
+            // Emit a real token when IAntiforgery is available (previously the value was always empty, so a
+            // plain form post failed [ValidateAntiForgeryToken] unless client script filled it in).
+            var tokens = (ViewContext?.HttpContext?.RequestServices?.GetService(typeof(Microsoft.AspNetCore.Antiforgery.IAntiforgery))
+                as Microsoft.AspNetCore.Antiforgery.IAntiforgery)?.GetAndStoreTokens(ViewContext!.HttpContext);
+            var fieldName = tokens?.FormFieldName ?? "__RequestVerificationToken";
+            html += $"<input name=\"{A(fieldName)}\" type=\"hidden\" value=\"{A(tokens?.RequestToken)}\" data-sf-antiforgery=\"true\" />\n";
         }
 
         // Validation summary
@@ -402,15 +407,15 @@ public class SalesforceModelFormTagHelper : TagHelper
         // Column wrapper for multi-column layout
         if (Columns > 1)
         {
-            html += $"<div class=\"{columnClass}\">\n";
+            html += $"<div class=\"{A(columnClass)}\">\n";
         }
 
         // Field group wrapper
-        html += $"<div class=\"{wrapperClass}\">\n";
+        html += $"<div class=\"{A(wrapperClass)}\">\n";
 
         // Label
         var requiredMark = GetRequiredMark(field);
-        html += $"  <label for=\"{inputId}\" class=\"{labelClass}\">{System.Web.HttpUtility.HtmlEncode(field.Label)}{requiredMark}</label>\n";
+        html += $"  <label for=\"{A(inputId)}\" class=\"{A(labelClass)}\">{System.Web.HttpUtility.HtmlEncode(field.Label)}{requiredMark}</label>\n";
 
         // Control wrapper for SLDS
         if (Framework == CssFramework.SLDS)
@@ -430,11 +435,11 @@ public class SalesforceModelFormTagHelper : TagHelper
         // Help text
         if (!string.IsNullOrEmpty(field.InlineHelpText))
         {
-            html += $"  <div class=\"{helpClass}\">{System.Web.HttpUtility.HtmlEncode(field.InlineHelpText)}</div>\n";
+            html += $"  <div class=\"{A(helpClass)}\">{System.Web.HttpUtility.HtmlEncode(field.InlineHelpText)}</div>\n";
         }
 
         // Validation message
-        html += $"  <span class=\"{validationClass}\" data-valmsg-for=\"{fieldName}\" data-valmsg-replace=\"true\"></span>\n";
+        html += $"  <span class=\"{A(validationClass)}\" data-valmsg-for=\"{A(fieldName)}\" data-valmsg-replace=\"true\"></span>\n";
 
         // Close field group
         html += "</div>\n";
@@ -510,13 +515,13 @@ public class SalesforceModelFormTagHelper : TagHelper
         // Handle special field types
         if (field.IsPicklist)
         {
-            var rtIdAttr = !string.IsNullOrEmpty(RecordTypeId) ? $" sf-record-type-id=\"{RecordTypeId}\"" : "";
-            return $"  <sf-picklist asp-for=\"{fieldName}\" sf-object=\"{ObjectName}\" sf-picklist-field=\"{field.Name}\" class=\"{inputClass}\"{requiredAttr}{disabledAttr}{rtIdAttr}></sf-picklist>\n";
+            var rtIdAttr = !string.IsNullOrEmpty(RecordTypeId) ? $" sf-record-type-id=\"{A(RecordTypeId)}\"" : "";
+            return $"  <sf-picklist asp-for=\"{A(fieldName)}\" sf-object=\"{A(ObjectName)}\" sf-picklist-field=\"{A(field.Name)}\" class=\"{A(inputClass)}\"{requiredAttr}{disabledAttr}{rtIdAttr}></sf-picklist>\n";
         }
 
         if (field.IsLookup)
         {
-            return $"  <sf-lookup asp-for=\"{fieldName}\" sf-object=\"{ObjectName}\" sf-field=\"{field.Name}\" class=\"{inputClass}\"{requiredAttr}{disabledAttr}></sf-lookup>\n";
+            return $"  <sf-lookup asp-for=\"{A(fieldName)}\" sf-object=\"{A(ObjectName)}\" sf-field=\"{A(field.Name)}\" class=\"{A(inputClass)}\"{requiredAttr}{disabledAttr}></sf-lookup>\n";
         }
 
         var fieldType = field.Type?.ToLowerInvariant() ?? "string";
@@ -524,40 +529,40 @@ public class SalesforceModelFormTagHelper : TagHelper
         return fieldType switch
         {
             "textarea" or "longtextarea" or "richtextarea" =>
-                $"  <textarea id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" rows=\"4\"{requiredAttr}{readonlyAttr}{maxLengthAttr}>{System.Web.HttpUtility.HtmlEncode(currentValue ?? "")}</textarea>\n",
+                $"  <textarea id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" rows=\"4\"{requiredAttr}{readonlyAttr}{maxLengthAttr}>{System.Web.HttpUtility.HtmlEncode(currentValue ?? "")}</textarea>\n",
 
             "boolean" =>
                 BuildCheckboxHtml(inputId, fieldName, currentValue, readonlyAttr),
 
             "date" =>
-                $"  <input type=\"date\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{FormatDateValue(currentValue, "yyyy-MM-dd")}\"{requiredAttr}{readonlyAttr} />\n",
+                $"  <input type=\"date\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{A(FormatDateValue(currentValue, "yyyy-MM-dd"))}\"{requiredAttr}{readonlyAttr} />\n",
 
             "datetime" =>
-                $"  <input type=\"datetime-local\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{FormatDateValue(currentValue, "yyyy-MM-ddTHH:mm")}\"{requiredAttr}{readonlyAttr} />\n",
+                $"  <input type=\"datetime-local\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{A(FormatDateValue(currentValue, "yyyy-MM-ddTHH:mm"))}\"{requiredAttr}{readonlyAttr} />\n",
 
             "time" =>
-                $"  <input type=\"time\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr} />\n",
+                $"  <input type=\"time\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr} />\n",
 
             "email" =>
-                $"  <input type=\"email\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n",
+                $"  <input type=\"email\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n",
 
             "phone" =>
-                $"  <input type=\"tel\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n",
+                $"  <input type=\"tel\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n",
 
             "url" =>
-                $"  <input type=\"url\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n",
+                $"  <input type=\"url\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n",
 
             "int" =>
-                $"  <input type=\"number\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\" step=\"1\"{requiredAttr}{readonlyAttr} />\n",
+                $"  <input type=\"number\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\" step=\"1\"{requiredAttr}{readonlyAttr} />\n",
 
             "double" or "currency" or "percent" =>
                 BuildNumberInputHtml(inputId, fieldName, inputClass, encodedValue, requiredAttr, readonlyAttr, field),
 
             "encryptedstring" =>
-                $"  <input type=\"password\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"\" placeholder=\"(encrypted)\" autocomplete=\"new-password\"{readonlyAttr}{maxLengthAttr} />\n",
+                $"  <input type=\"password\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"\" placeholder=\"(encrypted)\" autocomplete=\"new-password\"{readonlyAttr}{maxLengthAttr} />\n",
 
             _ =>
-                $"  <input type=\"text\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n"
+                $"  <input type=\"text\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\"{requiredAttr}{readonlyAttr}{maxLengthAttr} />\n"
         };
     }
 
@@ -568,11 +573,11 @@ public class SalesforceModelFormTagHelper : TagHelper
         return Framework switch
         {
             CssFramework.Bootstrap5 =>
-                $"  <div class=\"form-check\">\n    <input type=\"checkbox\" id=\"{inputId}\" name=\"{fieldName}\" class=\"form-check-input\" value=\"true\"{isChecked}{readonlyAttr} />\n  </div>\n",
+                $"  <div class=\"form-check\">\n    <input type=\"checkbox\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"form-check-input\" value=\"true\"{isChecked}{readonlyAttr} />\n  </div>\n",
             CssFramework.SLDS =>
-                $"  <div class=\"slds-checkbox\">\n    <input type=\"checkbox\" id=\"{inputId}\" name=\"{fieldName}\" value=\"true\"{isChecked}{readonlyAttr} />\n    <label class=\"slds-checkbox__label\" for=\"{inputId}\"><span class=\"slds-checkbox_faux\"></span></label>\n  </div>\n",
+                $"  <div class=\"slds-checkbox\">\n    <input type=\"checkbox\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" value=\"true\"{isChecked}{readonlyAttr} />\n    <label class=\"slds-checkbox__label\" for=\"{A(inputId)}\"><span class=\"slds-checkbox_faux\"></span></label>\n  </div>\n",
             _ =>
-                $"  <input type=\"checkbox\" id=\"{inputId}\" name=\"{fieldName}\" value=\"true\"{isChecked}{readonlyAttr} />\n"
+                $"  <input type=\"checkbox\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" value=\"true\"{isChecked}{readonlyAttr} />\n"
         };
     }
 
@@ -609,15 +614,15 @@ public class SalesforceModelFormTagHelper : TagHelper
                 CssFramework.Bootstrap5 =>
                     $"  <div class=\"input-group\">\n" +
                     (prefix != "" ? $"    <span class=\"input-group-text\">{prefix}</span>\n" : "") +
-                    $"    <input type=\"number\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\" step=\"{step}\"{requiredAttr}{readonlyAttr} />\n" +
+                    $"    <input type=\"number\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\" step=\"{step}\"{requiredAttr}{readonlyAttr} />\n" +
                     (suffix != "" ? $"    <span class=\"input-group-text\">{suffix}</span>\n" : "") +
                     "  </div>\n",
                 _ =>
-                    $"  <input type=\"number\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\" step=\"{step}\"{requiredAttr}{readonlyAttr} />\n"
+                    $"  <input type=\"number\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\" step=\"{step}\"{requiredAttr}{readonlyAttr} />\n"
             };
         }
 
-        return $"  <input type=\"number\" id=\"{inputId}\" name=\"{fieldName}\" class=\"{inputClass}\" value=\"{encodedValue}\" step=\"{step}\"{requiredAttr}{readonlyAttr} />\n";
+        return $"  <input type=\"number\" id=\"{A(inputId)}\" name=\"{A(fieldName)}\" class=\"{A(inputClass)}\" value=\"{encodedValue}\" step=\"{step}\"{requiredAttr}{readonlyAttr} />\n";
     }
 
     private string BuildButtonsHtml()
@@ -642,12 +647,14 @@ public class SalesforceModelFormTagHelper : TagHelper
         // Cancel button
         if (ShowCancel)
         {
-            var cancelUrl = CancelUrl ?? "javascript:history.back()";
+            // Only relative or http(s) URLs are emitted for a caller-supplied CancelUrl; anything else (javascript:, data:)
+            // falls back to the built-in history.back() link.
+            var cancelUrl = IsSafeUrl(CancelUrl) ? CancelUrl! : "javascript:history.back()";
             html += Framework switch
             {
-                CssFramework.Bootstrap5 => $"  <a href=\"{cancelUrl}\" class=\"btn btn-secondary\">{System.Web.HttpUtility.HtmlEncode(CancelText)}</a>\n",
-                CssFramework.SLDS => $"  <a href=\"{cancelUrl}\" class=\"slds-button slds-button_neutral\">{System.Web.HttpUtility.HtmlEncode(CancelText)}</a>\n",
-                _ => $"  <a href=\"{cancelUrl}\" class=\"sf-btn-secondary\">{System.Web.HttpUtility.HtmlEncode(CancelText)}</a>\n"
+                CssFramework.Bootstrap5 => $"  <a href=\"{A(cancelUrl)}\" class=\"btn btn-secondary\">{System.Web.HttpUtility.HtmlEncode(CancelText)}</a>\n",
+                CssFramework.SLDS => $"  <a href=\"{A(cancelUrl)}\" class=\"slds-button slds-button_neutral\">{System.Web.HttpUtility.HtmlEncode(CancelText)}</a>\n",
+                _ => $"  <a href=\"{A(cancelUrl)}\" class=\"sf-btn-secondary\">{System.Web.HttpUtility.HtmlEncode(CancelText)}</a>\n"
             };
         }
 
@@ -673,18 +680,35 @@ public class SalesforceModelFormTagHelper : TagHelper
 
         var modelType = Model.Model.GetType();
         var property = modelType.GetProperty(propertyName);
-        return property?.GetValue(Model.Model)?.ToString();
+        var value = property?.GetValue(Model.Model);
+        // Invariant (and round-trip for dates) so number/date inputs get values browsers accept in every culture.
+        return value switch
+        {
+            null => null,
+            DateTime or DateTimeOffset => ((IFormattable)value).ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+            _ => value.ToString()
+        };
     }
 
     private static string FormatDateValue(string? value, string format)
     {
         if (string.IsNullOrEmpty(value)) return "";
 
-        if (DateTime.TryParse(value, out var parsed))
+        if (DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
         {
-            return parsed.ToString(format);
+            return parsed.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         return value;
+    }
+
+    private static string A(string? value) => System.Web.HttpUtility.HtmlAttributeEncode(value ?? string.Empty);
+
+    internal static bool IsSafeUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal) && !url.StartsWith("/\\", StringComparison.Ordinal)) return true;
+        return Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp);
     }
 }

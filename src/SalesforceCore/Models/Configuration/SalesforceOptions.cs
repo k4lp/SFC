@@ -314,6 +314,13 @@ public class SalesforceOptions
     public bool PartitionSchemaCacheByUser { get; set; } = true;
 
     /// <summary>
+    /// When true (default) and an authenticated user is available via <c>IUserContextProvider</c>, lookup search
+    /// results are cached per user. Salesforce applies sharing to each user's query, so a shared cache entry could
+    /// otherwise return records one user can see to another user. Set to false for single-integration-user apps.
+    /// </summary>
+    public bool PartitionLookupCacheByUser { get; set; } = true;
+
+    /// <summary>
     /// Extra hosts trusted in addition to Salesforce domains (exact host, or a suffix beginning with '.').
     /// Use for corporate egress proxies or custom domains that do not end in a Salesforce suffix.
     /// </summary>

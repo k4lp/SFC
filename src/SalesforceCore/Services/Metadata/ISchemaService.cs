@@ -96,7 +96,8 @@ public interface ISchemaService
     /// Clears the schema cache for a specific object or all objects.
     /// </summary>
     /// <param name="sObject">Optional object to clear. Null clears all.</param>
-    Task InvalidateCacheAsync(string? sObject = null);
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task InvalidateCacheAsync(string? sObject = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets fields that are accessible for read operations (FLS-enforced).

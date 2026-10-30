@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using SalesforceCore.Extensions;
 using SalesforceCore.Services.Core;
+using SalesforceCore.Models.Metadata;
 
 namespace SalesforceCore.ModelGenerator;
 
@@ -15,7 +16,7 @@ namespace SalesforceCore.ModelGenerator;
 public class ModelGenerator : IDisposable
 {
     private readonly ISalesforceClient _client;
-    private readonly ServiceProvider _serviceProvider;
+    private readonly ServiceProvider? _serviceProvider;
     private bool _disposed;
 
     /// <summary>
@@ -46,17 +47,31 @@ public class ModelGenerator : IDisposable
     }
 
     /// <summary>
+    /// Creates a generator over an existing <see cref="ISalesforceClient"/> (any auth, handler pipeline or test fake).
+    /// The caller owns the client's lifetime.
+    /// </summary>
+    public ModelGenerator(ISalesforceClient client)
+    {
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+    }
+
+    /// <summary>
     /// Generates model classes for the specified Salesforce objects.
     /// </summary>
-    public async Task GenerateAsync(string[] objectNames, GeneratorOptions options)
+    public async Task GenerateAsync(string[] objectNames, GeneratorOptions options, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(objectNames);
+        ArgumentNullException.ThrowIfNull(options);
+        if (!ValidNamespace.IsMatch(options.Namespace ?? ""))
+            throw new ArgumentException($"Invalid namespace '{options.Namespace}'.", nameof(options));
+
         // Ensure output directory exists
         Directory.CreateDirectory(options.OutputDirectory);
 
         // Handle wildcard
         if (objectNames.Contains("*"))
         {
-            var allObjects = await ListObjectsAsync(null, false);
+            var allObjects = await ListObjectsAsync(null, false, cancellationToken);
             objectNames = allObjects
                 .Where(o => o.Queryable && (options.IncludeCustomObjects || !o.Custom))
                 .Select(o => o.Name)
@@ -70,16 +85,16 @@ public class ModelGenerator : IDisposable
             try
             {
                 Console.Write($"Generating {objectName}...");
-                var describe = await GetDescribeAsync(objectName);
+                var describe = await GetDescribeAsync(objectName, cancellationToken);
                 var code = GenerateClass(describe, options);
 
                 var fileName = $"{SanitizeClassName(objectName)}.cs";
                 var filePath = GeneratorEscaping.SafeOutputPath(options.OutputDirectory, fileName);
-                await File.WriteAllTextAsync(filePath, code);
+                await File.WriteAllTextAsync(filePath, code, cancellationToken);
 
                 Console.WriteLine(" Done.");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Console.WriteLine($" Error: {ex.Message}");
             }
@@ -89,9 +104,9 @@ public class ModelGenerator : IDisposable
     /// <summary>
     /// Lists available Salesforce objects.
     /// </summary>
-    public async Task<List<SObjectInfo>> ListObjectsAsync(string? filter, bool customOnly)
+    public async Task<List<SObjectInfo>> ListObjectsAsync(string? filter, bool customOnly, CancellationToken cancellationToken = default)
     {
-        var result = await _client.GetAsync<GlobalDescribeResult>("/sobjects/");
+        var result = await _client.GetAsync<GlobalDescribeResult>("/sobjects/", cancellationToken);
 
         var objects = result.SObjects
             .Where(o => !customOnly || o.Custom)
@@ -110,9 +125,9 @@ public class ModelGenerator : IDisposable
     /// <summary>
     /// Describes a Salesforce object with field details.
     /// </summary>
-    public async Task DescribeObjectAsync(string objectName, bool fieldsOnly)
+    public async Task DescribeObjectAsync(string objectName, bool fieldsOnly, CancellationToken cancellationToken = default)
     {
-        var describe = await GetDescribeAsync(objectName);
+        var describe = await GetDescribeAsync(objectName, cancellationToken);
 
         if (!fieldsOnly)
         {
@@ -144,9 +159,11 @@ public class ModelGenerator : IDisposable
         }
     }
 
-    private async Task<SObjectDescribe> GetDescribeAsync(string objectName)
+    private async Task<SObjectDescribe> GetDescribeAsync(string objectName, CancellationToken cancellationToken)
     {
-        return await _client.GetAsync<SObjectDescribe>($"/sobjects/{objectName}/describe");
+        if (!System.Text.RegularExpressions.Regex.IsMatch(objectName ?? "", "^[A-Za-z][A-Za-z0-9_]{0,79}$"))
+            throw new ArgumentException($"Invalid sObject name '{objectName}'.", nameof(objectName));
+        return await _client.GetAsync<SObjectDescribe>($"/sobjects/{objectName}/describe", cancellationToken);
     }
 
     /// <summary>
@@ -156,13 +173,15 @@ public class ModelGenerator : IDisposable
     {
         if (!_disposed)
         {
-            _serviceProvider.Dispose();
+            _serviceProvider?.Dispose();
             _disposed = true;
         }
         GC.SuppressFinalize(this);
     }
 
-    private string GenerateClass(SObjectDescribe describe, GeneratorOptions options)
+    private static readonly Regex ValidNamespace = new(@"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$", RegexOptions.CultureInvariant);
+
+    internal string GenerateClass(SObjectDescribe describe, GeneratorOptions options)
     {
         var sb = new StringBuilder();
 
@@ -191,7 +210,9 @@ public class ModelGenerator : IDisposable
             sb.AppendLine();
         }
 
-        // Namespace
+        // Namespace (validated: it is emitted verbatim, so a crafted value could otherwise inject code)
+        if (!ValidNamespace.IsMatch(options.Namespace ?? ""))
+            throw new ArgumentException($"Invalid namespace '{options.Namespace}'.", nameof(options));
         sb.AppendLine($"namespace {options.Namespace};");
         sb.AppendLine();
 
@@ -229,7 +250,7 @@ public class ModelGenerator : IDisposable
         return sb.ToString();
     }
 
-    private void GenerateProperty(StringBuilder sb, FieldDescribe field, GeneratorOptions options)
+    private void GenerateProperty(StringBuilder sb, SObjectField field, GeneratorOptions options)
     {
         var propertyName = SanitizePropertyName(field.Name);
         var csharpType = MapSalesforceTypeToCSharp(field, options.UseNullableTypes);
@@ -268,7 +289,7 @@ public class ModelGenerator : IDisposable
                 attrParts.Add($"Scale = {field.Scale}");
             if (!field.Nillable && field.Name != "Id")
                 attrParts.Add("Required = true");
-            if (field.Type == "reference" && field.ReferenceTo?.Length > 0)
+            if (field.Type == "reference" && field.ReferenceTo?.Count > 0)
             {
                 attrParts.Add($"ReferenceTo = \"{GeneratorEscaping.CSharpString(field.ReferenceTo[0])}\"");
                 if (field.RelationshipName != null)
@@ -281,7 +302,9 @@ public class ModelGenerator : IDisposable
         // JSON attribute (unless attributes only mode)
         if (!options.AttributesOnly && propertyName != field.Name)
         {
-            sb.AppendLine($"    [JsonProperty(\"{GeneratorEscaping.CSharpString(field.Name)}\")]");
+            // System.Text.Json attribute: the file imports System.Text.Json.Serialization, so the old Newtonsoft
+            // [JsonProperty] did not compile in generated code.
+            sb.AppendLine($"    [JsonPropertyName(\"{GeneratorEscaping.CSharpString(field.Name)}\")]");
         }
 
         // Special attributes
@@ -295,16 +318,18 @@ public class ModelGenerator : IDisposable
         }
 
         // Lookup attribute
-        if (field.Type == "reference" && field.ReferenceTo?.Length > 0)
+        if (field.Type == "reference" && field.ReferenceTo?.Count > 0)
         {
             var refTo = field.ReferenceTo[0];
-            var relName = field.RelationshipName ?? "";
-            var poly = field.ReferenceTo.Length > 1 ? ", Polymorphic = true" : "";
-            sb.AppendLine($"    [SalesforceLookup(\"{GeneratorEscaping.CSharpString(refTo)}\", RelationshipName = \"{GeneratorEscaping.CSharpString(relName)}\"{poly})]");
+            var rel = string.IsNullOrEmpty(field.RelationshipName)
+                ? ""
+                : $", RelationshipName = \"{GeneratorEscaping.CSharpString(field.RelationshipName)}\"";
+            var poly = field.ReferenceTo.Count > 1 ? ", Polymorphic = true" : "";
+            sb.AppendLine($"    [SalesforceLookup(\"{GeneratorEscaping.CSharpString(refTo)}\"{rel}{poly})]");
         }
 
         // Picklist attribute
-        if ((field.Type == "picklist" || field.Type == "multipicklist") && field.PicklistValues?.Length > 0)
+        if ((field.Type == "picklist" || field.Type == "multipicklist") && field.PicklistValues?.Count > 0)
         {
             var values = field.PicklistValues
                 .Where(p => p.Active)
@@ -318,7 +343,7 @@ public class ModelGenerator : IDisposable
         sb.AppendLine($"    public {csharpType} {propertyName} {{ get; set; }}");
     }
 
-    private static string MapSalesforceTypeToCSharp(FieldDescribe field, bool nullable)
+    private static string MapSalesforceTypeToCSharp(SObjectField field, bool nullable)
     {
         var nullableSuffix = nullable && field.Nillable ? "?" : "";
 
@@ -421,141 +446,7 @@ public class GeneratorOptions
     public bool UseNullableTypes { get; set; } = true;
 }
 
-#region API Response Models
 
-/// <summary>
-/// Result of global describe call.
-/// </summary>
-public class GlobalDescribeResult
-{
-    [JsonPropertyName("sobjects")]
-    public List<SObjectInfo> SObjects { get; set; } = new();
-}
-
-/// <summary>
-/// Basic information about a Salesforce object.
-/// </summary>
-public class SObjectInfo
-{
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = "";
-
-    [JsonPropertyName("label")]
-    public string Label { get; set; } = "";
-
-    [JsonPropertyName("custom")]
-    public bool Custom { get; set; }
-
-    [JsonPropertyName("queryable")]
-    public bool Queryable { get; set; }
-
-    [JsonPropertyName("createable")]
-    public bool Createable { get; set; }
-
-    [JsonPropertyName("updateable")]
-    public bool Updateable { get; set; }
-
-    [JsonPropertyName("deletable")]
-    public bool Deletable { get; set; }
-}
-
-/// <summary>
-/// Detailed describe result for a Salesforce object.
-/// </summary>
-public class SObjectDescribe
-{
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = "";
-
-    [JsonPropertyName("label")]
-    public string Label { get; set; } = "";
-
-    [JsonPropertyName("custom")]
-    public bool Custom { get; set; }
-
-    [JsonPropertyName("queryable")]
-    public bool Queryable { get; set; }
-
-    [JsonPropertyName("createable")]
-    public bool Createable { get; set; }
-
-    [JsonPropertyName("updateable")]
-    public bool Updateable { get; set; }
-
-    [JsonPropertyName("deletable")]
-    public bool Deletable { get; set; }
-
-    [JsonPropertyName("fields")]
-    public List<FieldDescribe> Fields { get; set; } = new();
-}
-
-/// <summary>
-/// Field description from Salesforce describe.
-/// </summary>
-public class FieldDescribe
-{
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = "";
-
-    [JsonPropertyName("label")]
-    public string Label { get; set; } = "";
-
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "";
-
-    [JsonPropertyName("length")]
-    public int Length { get; set; }
-
-    [JsonPropertyName("precision")]
-    public int Precision { get; set; }
-
-    [JsonPropertyName("scale")]
-    public int Scale { get; set; }
-
-    [JsonPropertyName("nillable")]
-    public bool Nillable { get; set; }
-
-    [JsonPropertyName("createable")]
-    public bool Createable { get; set; }
-
-    [JsonPropertyName("updateable")]
-    public bool Updateable { get; set; }
-
-    [JsonPropertyName("custom")]
-    public bool Custom { get; set; }
-
-    [JsonPropertyName("externalId")]
-    public bool ExternalId { get; set; }
-
-    [JsonPropertyName("referenceTo")]
-    public string[]? ReferenceTo { get; set; }
-
-    [JsonPropertyName("relationshipName")]
-    public string? RelationshipName { get; set; }
-
-    [JsonPropertyName("inlineHelpText")]
-    public string? InlineHelpText { get; set; }
-
-    [JsonPropertyName("picklistValues")]
-    public PicklistValue[]? PicklistValues { get; set; }
-}
-
-/// <summary>
-/// Picklist value from field describe.
-/// </summary>
-public class PicklistValue
-{
-    [JsonPropertyName("value")]
-    public string Value { get; set; } = "";
-
-    [JsonPropertyName("label")]
-    public string Label { get; set; } = "";
-
-    [JsonPropertyName("active")]
-    public bool Active { get; set; }
-}
-
-#endregion
 
 /// <summary>
 /// Escaping helpers for emitting untrusted Salesforce metadata (names, labels, help text, picklist values)

@@ -47,6 +47,13 @@ public class SalesforceLookupTagHelper : TagHelper
     /// <summary>
     /// The model expression for the lookup field value (the ID).
     /// </summary>
+    /// <summary>
+    /// Endpoint the client script calls for results (default "/Lookup/Search"). Set it when the app runs under a
+    /// path base or exposes the lookup endpoint elsewhere.
+    /// </summary>
+    [HtmlAttributeName("sf-search-url")]
+    public string SearchUrl { get; set; } = "/Lookup/Search";
+
     [HtmlAttributeName("asp-for")]
     public ModelExpression? For { get; set; }
 
@@ -303,11 +310,11 @@ public class SalesforceLookupTagHelper : TagHelper
            data-sf-lookup=""true""
            data-sf-target=""{inputId}""
            data-sf-target-objects=""{targetObjectsJson}""
-           data-sf-polymorphic=""{isPolymorphic.ToString().ToLower()}""
+           data-sf-polymorphic=""{(isPolymorphic ? "true" : "false")}""
            data-sf-min-chars=""{MinChars}""
            data-sf-debounce=""{DebounceMs}""
            data-sf-limit=""{Limit}""
-           data-sf-search-url=""/Lookup/Search""{searchFieldsAttr}{displayTemplateAttr}{disabledAttr} />
+           data-sf-search-url=""{System.Web.HttpUtility.HtmlAttributeEncode(SearchUrl)}""{searchFieldsAttr}{displayTemplateAttr}{disabledAttr} />
     <span class=""sf-lookup-icon"">
         <svg xmlns=""http://www.w3.org/2000/svg"" width=""16"" height=""16"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"">
             <circle cx=""11"" cy=""11"" r=""8""></circle>
