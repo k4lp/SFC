@@ -84,6 +84,9 @@ var resultsCsv = await bulkService.GetQueryResultsAsync(job.Id);
   ends `Failed`/`Aborted` throws `SalesforceException` with Salesforce's `errorMessage`; `QueryAsync` follows every
   `Sforce-Locator` page; and `BatchRecordError.Index` on the Bulk path is the index into your input (matched by the echoed
   column values; `-1` if no unique match).
+- Since 2.4.0: on update/upsert a `null` value is written as `#N/A`, so Bulk clears the field exactly like the REST and
+  composite paths (an empty cell means "unchanged" in Bulk 2.0). A key missing from a record is still sent empty. Opt out
+  with `Salesforce:BulkNullsAsNA = false`.
 - `ICompositeService.*RecordsAsync(allOrNone: true)` accepts at most 25 records (one composite call is the unit Salesforce
   can roll back) and throws `ArgumentException` above that. Without `allOrNone` the records are still chunked by 25.
 - Job timeouts use `BulkJobTimeout`; polling uses `BulkPollInterval`.

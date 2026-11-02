@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.4.0 — 2026-11-02
+
+Second end-to-end round against the fake Salesforce (`tests/SalesforceCore.E2E`, now 30 tests). See
+[MIGRATION.md](MIGRATION.md#240).
+
+### Fixed
+- **JWT bearer flow failed on every token refresh after the first** with `ObjectDisposedException`: the RSA key was
+  disposed after signing while IdentityModel cached a signature provider bound to it. Refreshes now sign correctly
+  (verified: cold start and three 401 storms of 20 parallel calls, one token request each).
+- **Files over 10 MB could not be downloaded** (`DownloadAsync`/`DownloadToStreamAsync` hit HttpClient's 10 MB buffer
+  limit although uploads up to 25 MB are allowed). Downloads now stream; `DownloadToStreamAsync` no longer buffers.
+- **`GetDescribeAsync` returned `null` on any error** (503, auth failure, open circuit), indistinguishable from an
+  unknown object; `GetAllObjectsAsync` returned an empty list. Only not-found returns `null` now; everything else throws.
+- **Typed responses bound case-sensitively**: Apex REST returning `{"accountName":..}` left a `AccountName` DTO property
+  null. Typed deserialisation is now case-insensitive.
+- **Bulk update/upsert silently ignored `null`** (empty cell = unchanged in Bulk 2.0) while REST/composite cleared the
+  field. Nulls are now sent as `#N/A`; opt out with `BulkNullsAsNA = false`.
+
+### Added
+- `SalesforceOptions.EnableResponseCompression` (default off): gzip responses via `SalesforceCompressionHandler`.
+- `SalesforceOptions.BulkNullsAsNA` (default on).
+- E2E coverage for the distributed ticket store (Data Protection ciphertext, foreign key ring rejected) and
+  `DistributedCacheProvider` (round trip, single-flight `GetOrCreateAsync`), global-describe caching and host disposal.
+
 ## 2.3.0 — 2026-11-02
 
 End-to-end audit of the whole library against a fake Salesforce served by ASP.NET Core TestServer and the real DI

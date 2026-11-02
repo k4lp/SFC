@@ -232,8 +232,11 @@ public class JwtTokenProvider : ITokenProvider
 
         using var privateKey = GetPrivateKey();
 
+        // The RSA instance is disposed after signing. IdentityModel caches signature providers per key by default,
+        // so the second assertion (every refresh after the first) reused a provider bound to the disposed key and
+        // threw ObjectDisposedException. Disable that cache for this short-lived key.
         var credentials = new SigningCredentials(
-            new RsaSecurityKey(privateKey),
+            new RsaSecurityKey(privateKey) { CryptoProviderFactory = new CryptoProviderFactory { CacheSignatureProviders = false } },
             SecurityAlgorithms.RsaSha256);
 
         var token = new JwtSecurityToken(

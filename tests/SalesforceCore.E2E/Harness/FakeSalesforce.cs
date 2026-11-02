@@ -45,6 +45,13 @@ public sealed class FakeSalesforce : IAsyncDisposable
     public string BulkErrorMessage = "";
     public Func<string, (string success, string failed, int processed, int failed2)>? BulkResultsFor;
     public string? LastCompositeBody;
+    public int DescribeRequests;
+    public int GlobalDescribeRequests;
+    public ConcurrentQueue<int> DescribeFailures { get; } = new();
+    public byte[] FileBytes = Enumerable.Range(0, 11 * 1024 * 1024).Select(i => (byte)(i % 251)).ToArray();
+    public bool GzipResponses;
+    public string? LastAcceptEncoding;
+    public string? LastGrantType;
     public Func<JsonObject, JsonObject>? CompositeResponder;
 
     public HttpMessageHandler Handler => _app.GetTestServer().CreateHandler();
@@ -86,6 +93,23 @@ public sealed class FakeSalesforce : IAsyncDisposable
         app.Use(async (ctx, next) =>
         {
             Requests.Enqueue($"{ctx.Request.Method} {ctx.Request.Path}{ctx.Request.QueryString}");
+            LastAcceptEncoding = ctx.Request.Headers.AcceptEncoding.ToString();
+            if (GzipResponses && LastAcceptEncoding.Contains("gzip") && !ctx.Request.Path.StartsWithSegments("/services/oauth2"))
+            {
+                var original = ctx.Response.Body;
+                await using var buffer = new MemoryStream();
+                ctx.Response.Body = buffer;
+                ctx.Response.Headers.ContentEncoding = "gzip";
+                var authOk = ctx.Request.Headers.Authorization.ToString() == $"Bearer {CurrentToken}";
+                if (!authOk) { ctx.Response.Body = original; ctx.Response.Headers.Remove("Content-Encoding"); await Error(ctx, 401, "INVALID_SESSION_ID", "Session expired or invalid"); return; }
+                await next();
+                ctx.Response.Body = original;
+                await using (var gz = new System.IO.Compression.GZipStream(original, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+                {
+                    await gz.WriteAsync(buffer.ToArray());
+                }
+                return;
+            }
             if (ctx.Request.Path.StartsWithSegments("/services/oauth2"))
             {
                 await next();
@@ -107,6 +131,8 @@ public sealed class FakeSalesforce : IAsyncDisposable
         app.MapPost("/services/oauth2/token", async ctx =>
         {
             Interlocked.Increment(ref TokenRequests);
+            var form = await ctx.Request.ReadFormAsync();
+            LastGrantType = form["grant_type"];
             if (TokenDelay > TimeSpan.Zero) await Task.Delay(TokenDelay);
             await Json(ctx, new JsonObject
             {
@@ -189,6 +215,36 @@ public sealed class FakeSalesforce : IAsyncDisposable
             await Csv(ctx, string.IsNullOrEmpty(locator) ? BulkQueryCsvPage1 : BulkQueryCsvPage2);
         });
 
+        app.MapGet(v + "/sobjects", async ctx =>
+        {
+            Interlocked.Increment(ref GlobalDescribeRequests);
+            await Json(ctx, new JsonObject { ["encoding"] = "UTF-8", ["maxBatchSize"] = 200, ["sobjects"] = new JsonArray(
+                new JsonObject { ["name"] = "Account", ["label"] = "Account", ["queryable"] = true, ["custom"] = false },
+                new JsonObject { ["name"] = "Invoice__c", ["label"] = "Invoice", ["queryable"] = true, ["custom"] = true }) });
+        });
+        app.MapGet(v + "/sobjects/{obj}/describe", async (HttpContext ctx, string obj) =>
+        {
+            Interlocked.Increment(ref DescribeRequests);
+            if (DescribeFailures.TryDequeue(out var st)) { await Error(ctx, st, st == 404 ? "NOT_FOUND" : "SERVER_UNAVAILABLE", "describe failed"); return; }
+            if (obj != "Account") { await Error(ctx, 404, "NOT_FOUND", "The requested resource does not exist"); return; }
+            await Json(ctx, Describe());
+        });
+        app.MapGet(v + "/sobjects/ContentVersion/{id}/VersionData", async (HttpContext ctx, string id) =>
+        {
+            ctx.Response.ContentType = "application/octet-stream";
+            await ctx.Response.Body.WriteAsync(FileBytes);
+        });
+        app.MapGet("/services/apexrest/echo/{kind}", async (HttpContext ctx, string kind) =>
+        {
+            ctx.Response.ContentType = "application/json";
+            await ctx.Response.WriteAsync(kind switch
+            {
+                "object" => "{\"accountName\":\"Acme\",\"total\":12.5}",
+                "array" => "[1,2,3]",
+                "string" => "\"ok\"",
+                _ => ""
+            });
+        });
         app.MapPost(v + "/composite", async ctx =>
         {
             var body = (JsonObject)(await JsonNode.ParseAsync(ctx.Request.Body))!;
@@ -197,6 +253,19 @@ public sealed class FakeSalesforce : IAsyncDisposable
             await Json(ctx, resp);
         });
     }
+
+    public static JsonObject Describe() => new()
+    {
+        ["name"] = "Account", ["label"] = "Account", ["queryable"] = true, ["createable"] = true, ["updateable"] = true,
+        ["fields"] = new JsonArray(
+            new JsonObject { ["name"] = "Id", ["label"] = "Account ID", ["type"] = "id", ["nillable"] = false, ["createable"] = false, ["updateable"] = false },
+            new JsonObject { ["name"] = "Name", ["label"] = "Account <Name> & \"Co\"", ["type"] = "string", ["length"] = 255, ["nillable"] = false, ["createable"] = true, ["updateable"] = true, ["inlineHelpText"] = "<script>alert(1)</script>" },
+            new JsonObject { ["name"] = "Industry", ["label"] = "Industry", ["type"] = "picklist", ["nillable"] = true, ["createable"] = true, ["updateable"] = true,
+                ["picklistValues"] = new JsonArray(
+                    new JsonObject { ["value"] = "Tech\"<b>", ["label"] = "Tech <b>", ["active"] = true, ["defaultValue"] = false },
+                    new JsonObject { ["value"] = "Old", ["label"] = "Old", ["active"] = false, ["defaultValue"] = false }) },
+            new JsonObject { ["name"] = "AnnualRevenue", ["label"] = "Revenue", ["type"] = "currency", ["nillable"] = true, ["createable"] = true, ["updateable"] = true, ["precision"] = 18, ["scale"] = 2 })
+    };
 
     private static JsonObject DefaultComposite(JsonObject body)
     {

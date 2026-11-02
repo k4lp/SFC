@@ -921,7 +921,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
 
         return failed.Select(f =>
         {
-            var key = Key(c => f.OriginalData != null && f.OriginalData.TryGetValue(c, out var v) ? v : null);
+            var key = Key(c => f.OriginalData != null && f.OriginalData.TryGetValue(c, out var v) ? (v == "#N/A" ? string.Empty : v) : null);
             return byKey.TryGetValue(key, out var q) && q.Count > 0 ? q.Dequeue() : -1;
         }).ToArray();
     }

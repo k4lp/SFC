@@ -429,7 +429,10 @@ public class BulkService : IBulkService
             return new BulkJobResults { Job = new BulkJobInfo { State = BulkJobState.JobComplete } };
         }
 
-        var csvData = ConvertToCsv(recordList);
+        // Bulk 2.0: an empty cell leaves the field unchanged; "#N/A" sets it to null. REST/composite PATCH clears a
+        // field given null, so for update/upsert a present-but-null value is sent as #N/A (missing keys stay empty).
+        var nullToken = _options.BulkNullsAsNA && operation is BulkOperation.update or BulkOperation.upsert ? "#N/A" : string.Empty;
+        var csvData = ConvertToCsv(recordList, nullToken);
         return await ExecuteBulkOperationWithCsvAsync(
             objectName,
             operation,
@@ -519,7 +522,7 @@ public class BulkService : IBulkService
     /// <summary>
     /// Converts records to RFC 4180 compliant CSV using CsvHelper.
     /// </summary>
-    private static string ConvertToCsv(List<Dictionary<string, object?>> records)
+    private static string ConvertToCsv(List<Dictionary<string, object?>> records, string nullToken = "")
     {
         if (records.Count == 0)
             return string.Empty;
@@ -551,8 +554,9 @@ public class BulkService : IBulkService
         {
             foreach (var field in fields)
             {
-                record.TryGetValue(field, out var value);
-                csv.WriteField(FormatCsvValue(value));
+                csv.WriteField(record.TryGetValue(field, out var value)
+                    ? (value == null ? nullToken : FormatCsvValue(value))
+                    : string.Empty);
             }
             csv.NextRecord();
         }

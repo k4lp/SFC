@@ -73,9 +73,11 @@ public class SchemaService : ISchemaService
                         $"/sobjects/{sObject}/describe",
                         ct);
                 }
-                catch (Exception ex)
+                catch (SalesforceCore.Models.Errors.SalesforceNotFoundException ex)
                 {
-                    _logger.LogError(ex, "Failed to get describe for {SObject}", sObject);
+                    // Unknown object: the documented null result. Other failures (auth, 5xx, cancellation) propagate;
+                    // 2.3.0 and earlier returned null for them too, so callers took an outage for "object does not exist".
+                    _logger.LogDebug(ex, "No describe for {SObject}", sObject);
                     return null;
                 }
             },
@@ -235,10 +237,11 @@ public class SchemaService : ISchemaService
                     var response = await _client.GetAsync<GlobalDescribeResult>("/sobjects/", ct);
                     return response?.SObjects;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    // Propagate: an empty object list on an outage was indistinguishable from an empty org.
                     _logger.LogError(ex, "Failed to get global describe");
-                    return null;
+                    throw;
                 }
             },
             _options.SchemaCacheDuration,

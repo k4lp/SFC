@@ -33,6 +33,12 @@ public class SalesforceClient : ISalesforceClient
     private readonly SalesforceApiVersion _apiVersion;
     private volatile string? _instanceUrl;
 
+    /// <summary>
+    /// Options for typed responses. Case-insensitive: Apex REST serialises Apex property names as declared
+    /// (usually camelCase), and case-sensitive binding left PascalCase DTO properties silently null.
+    /// </summary>
+    internal static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
+
     /// <summary>Serializer options used for request bodies.</summary>
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -394,7 +400,7 @@ public class SalesforceClient : ISalesforceClient
             }
             return default!;
         }
-        return JsonSerializer.Deserialize<T>(response.Content)!;
+        return JsonSerializer.Deserialize<T>(response.Content, ReadOptions)!;
     }
 
     internal static string PathForLog(string path)
