@@ -155,7 +155,10 @@ public class SalesforceExceptionMiddleware
 
         if (ex.RetryAfter.HasValue)
         {
-            context.Response.Headers.Append("Retry-After", ex.RetryAfter.Value.TotalSeconds.ToString());
+            // RFC 9110: delay-seconds is a non-negative integer. TotalSeconds.ToString() produced "1.5" or, under
+            // cultures such as de-DE, "1,5", which clients cannot parse.
+            var seconds = Math.Max(0, (long)Math.Ceiling(ex.RetryAfter.Value.TotalSeconds));
+            context.Response.Headers.Append("Retry-After", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         await context.Response.WriteAsync(JsonSerializer.Serialize(new

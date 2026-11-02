@@ -276,7 +276,7 @@ public class CompositeServiceTests
     }
 
     [Fact]
-    public async Task CreateRecordsAsync_AllOrNone_ShouldBePropagatedToEachBatch()
+    public async Task CreateRecordsAsync_AllOrNone_OverOneBatch_Throws_BecauseItCannotBeAtomic()
     {
         // Arrange
         var capturedRequests = new List<CompositeRequest>();
@@ -293,12 +293,12 @@ public class CompositeServiceTests
 
         var records = CreateTestRecords(55);
 
-        // Act
-        await _service.CreateRecordsAsync("Account", records, allOrNone: true);
+        // Act: 2.2.x sent 3 separate allOrNone calls, so batch 1 could commit while batch 3 rolled back.
+        var act = () => _service.CreateRecordsAsync("Account", records, allOrNone: true);
 
         // Assert
-        capturedRequests.Should().HaveCount(3);
-        capturedRequests.All(r => r.AllOrNone).Should().BeTrue();
+        await act.Should().ThrowAsync<ArgumentException>();
+        capturedRequests.Should().BeEmpty();
     }
 
     private static List<Dictionary<string, object?>> CreateTestRecords(int count)

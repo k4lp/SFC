@@ -239,7 +239,7 @@ The `Salesforce` section contains all core library settings.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `MaxRetries` | `int` | `3` | Maximum retry attempts for failed requests. |
+| `MaxRetries` | `int` | `3` | Maximum retry attempts for failed requests. GET/PUT/DELETE retry on 408/429/5xx and connection errors; POST/PATCH (create, composite, bulk job creation, Apex) retry **only on 429**, because a 5xx or dropped connection may arrive after Salesforce committed the change (2.3.0). |
 | `RetryBaseDelay` | `TimeSpan` | `00:00:01` | Base delay for exponential backoff (delays: 1s, 2s, 4s...). |
 | `CircuitBreakerSamplingDuration` | `TimeSpan` | `00:00:30` | Circuit breaker sampling window. |
 | `CircuitBreakerBreakDuration` | `TimeSpan` | `00:00:30` | Duration circuit stays open after tripping. |

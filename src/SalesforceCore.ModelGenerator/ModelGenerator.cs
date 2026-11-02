@@ -240,9 +240,20 @@ public class ModelGenerator : IDisposable
         sb.AppendLine("{");
 
         // Generate properties
-        foreach (var field in describe.Fields.OrderBy(f => f.Name == "Id" ? 0 : 1).ThenBy(f => f.Name))
+        // C# forbids a member named like its class (CS0542) and duplicate names (e.g. "Foo__c" sanitising like an
+        // existing member); disambiguate deterministically. The [SalesforceField]/[JsonPropertyName] attributes keep
+        // the API name, because GenerateProperty emits them whenever the property name differs from the field name.
+        var used = new HashSet<string>(StringComparer.Ordinal) { className };
+        foreach (var field in describe.Fields.OrderBy(f => f.Name == "Id" ? 0 : 1).ThenBy(f => f.Name, StringComparer.Ordinal))
         {
-            GenerateProperty(sb, field, options);
+            var name = SanitizePropertyName(field.Name);
+            var candidate = name;
+            for (var n = 1; !used.Add(candidate.TrimStart('@')); n++)
+            {
+                candidate = $"{name.TrimStart('@')}_{n}";
+            }
+
+            GenerateProperty(sb, field, options, candidate);
         }
 
         sb.AppendLine("}");
@@ -250,9 +261,8 @@ public class ModelGenerator : IDisposable
         return sb.ToString();
     }
 
-    private void GenerateProperty(StringBuilder sb, SObjectField field, GeneratorOptions options)
+    private void GenerateProperty(StringBuilder sb, SObjectField field, GeneratorOptions options, string propertyName)
     {
-        var propertyName = SanitizePropertyName(field.Name);
         var csharpType = MapSalesforceTypeToCSharp(field, options.UseNullableTypes);
 
         // Property documentation
@@ -333,14 +343,16 @@ public class ModelGenerator : IDisposable
         {
             var values = field.PicklistValues
                 .Where(p => p.Active)
-                .Select(p => $"\"{GeneratorEscaping.CSharpString(p.Value)}\"")
-                .Take(20); // Limit to first 20 values
+                .Select(p => $"\"{GeneratorEscaping.CSharpString(p.Value)}\""); // all active values (the old 20-value cap dropped the rest)
             var multiSelect = field.Type == "multipicklist" ? ", MultiSelect = true" : "";
             sb.AppendLine($"    [SalesforcePicklist({string.Join(", ", values)}{multiSelect})]");
         }
 
         // Property declaration
-        sb.AppendLine($"    public {csharpType} {propertyName} {{ get; set; }}");
+        // Non-nullable reference types (the Id) get "= default!" so generated code is warning-free (CS8618).
+        var initializer = options.UseNullableTypes && !csharpType.EndsWith('?') && csharpType is "string" or "byte[]" or "object"
+            ? " = default!;" : "";
+        sb.AppendLine($"    public {csharpType} {propertyName} {{ get; set; }}{initializer}");
     }
 
     private static string MapSalesforceTypeToCSharp(SObjectField field, bool nullable)

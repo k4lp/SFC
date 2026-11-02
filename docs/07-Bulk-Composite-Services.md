@@ -80,6 +80,12 @@ var resultsCsv = await bulkService.GetQueryResultsAsync(job.Id);
 - CSV must be RFC 4180 compliant.
 - `InsertAsync` and `UpsertAsync` accept either record dictionaries or raw CSV.
 - Respect `MaxFileUploadSize` and org bulk limits.
+- Since 2.3.0: CSV values are written culture-invariantly (`1234.5`, ISO-8601 UTC datetimes, `true`/`false`); a job that
+  ends `Failed`/`Aborted` throws `SalesforceException` with Salesforce's `errorMessage`; `QueryAsync` follows every
+  `Sforce-Locator` page; and `BatchRecordError.Index` on the Bulk path is the index into your input (matched by the echoed
+  column values; `-1` if no unique match).
+- `ICompositeService.*RecordsAsync(allOrNone: true)` accepts at most 25 records (one composite call is the unit Salesforce
+  can roll back) and throws `ArgumentException` above that. Without `allOrNone` the records are still chunked by 25.
 - Job timeouts use `BulkJobTimeout`; polling uses `BulkPollInterval`.
 
 ## Composite API (`ICompositeService`)

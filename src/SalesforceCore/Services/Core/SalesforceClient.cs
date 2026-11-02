@@ -191,6 +191,7 @@ public class SalesforceClient : ISalesforceClient
     private async Task<HttpResponseMessage> SendWithRefreshAsync(SalesforceRequest request, HttpCompletionOption completion, CancellationToken cancellationToken)
     {
         var token = await EnsureAuthenticatedAndGetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+        var reusedNewerToken = false;
         for (var attempt = 0; ; attempt++)
         {
             var message = CreateMessage(request, token);
@@ -223,6 +224,18 @@ public class SalesforceClient : ISalesforceClient
             if (attempt >= 1)
             {
                 throw SalesforceAuthException.TokenExpiredException();
+            }
+
+            // Another request may already have refreshed the token while this one was in flight; reuse it instead of
+            // starting a second refresh (a burst of in-flight 401s otherwise triggers one token request each).
+            var current = await _tokenProvider.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+            if (!reusedNewerToken && !string.IsNullOrWhiteSpace(current) && !string.Equals(current, token, StringComparison.Ordinal))
+            {
+                reusedNewerToken = true;
+                attempt--; // not a refresh: the one allowed refresh is still available
+                token = current;
+                await EnsureInstanceUrlAsync(cancellationToken).ConfigureAwait(false);
+                continue;
             }
 
             _logger.LogWarning("Received 401, attempting token refresh");
