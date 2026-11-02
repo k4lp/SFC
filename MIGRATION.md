@@ -1,4 +1,15 @@
-# Migrating to SalesforceCore 2.2 / 2.3
+# Migrating to SalesforceCore 2.2 / 2.3 / 2.4
+
+<a id="240"></a>
+## 2.4.0
+
+No API removals. Behaviour changes:
+
+| Change | What to do |
+|---|---|
+| Bulk update/upsert sends `null` as `#N/A` (clears the field) | If you passed `null` meaning "leave unchanged", remove the key or set `Salesforce:BulkNullsAsNA` to `false`. |
+| `GetDescribeAsync` throws on non-404 errors; `GetAllObjectsAsync` throws instead of returning `[]` | Catch `SalesforceException` where you treated `null`/empty as "service unavailable". |
+| Typed responses bind property names case-insensitively | Nothing, unless a DTO has two properties differing only by case. |
 
 <a id="230"></a>
 ## 2.3.0

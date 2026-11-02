@@ -131,9 +131,14 @@ public class FileService : IFileService
 
         _logger.LogDebug("Downloading file content for ContentVersion {ContentVersionId}", contentVersionId);
 
-        return await _client.GetBytesAsync(
+        // Streamed: GetBytesAsync buffers through HttpClient.MaxResponseContentBufferSize (10 MB by default), so any
+        // file over 10 MB failed to download although uploads of up to 25 MB were accepted.
+        await using var stream = await _client.GetStreamAsync(
             $"/sobjects/ContentVersion/{contentVersionId}/VersionData",
             cancellationToken);
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, cancellationToken);
+        return buffer.ToArray();
     }
 
     /// <inheritdoc/>
@@ -145,8 +150,11 @@ public class FileService : IFileService
         if (destinationStream == null)
             throw new ArgumentNullException(nameof(destinationStream));
 
-        var content = await DownloadAsync(contentVersionId, cancellationToken);
-        await destinationStream.WriteAsync(content.AsMemory(), cancellationToken);
+        RequireId(contentVersionId, nameof(contentVersionId), "ContentVersion ID");
+        await using var stream = await _client.GetStreamAsync(
+            $"/sobjects/ContentVersion/{contentVersionId}/VersionData",
+            cancellationToken);
+        await stream.CopyToAsync(destinationStream, cancellationToken);
     }
 
     /// <inheritdoc/>

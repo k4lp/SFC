@@ -16,7 +16,7 @@ var sanitized = await schemaService.SanitizeFieldListAsync("Lead", requestedFiel
 ```
 
 ## Helpers
-- **Describe**: `GetDescribeAsync(string sObject)` returns object metadata (fields, permissions).
+- **Describe**: `GetDescribeAsync(string sObject)` returns object metadata (fields, permissions), or `null` when the object does not exist. Since 2.4.0 any other failure (auth, 5xx, open circuit, cancellation) throws instead of returning `null`; `GetAllObjectsAsync` likewise throws instead of returning an empty list.
 - **Field Lists**: `GetCreateableFieldsAsync`, `GetUpdateableFieldsAsync`, `GetQueryableFieldsAsync`.
 - **Name Field**: `GetNameFieldAsync` resolves the display/name field.
 - **Field Map**: `GetFieldMapAsync` dictionary by field name.

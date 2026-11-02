@@ -199,6 +199,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISalesforceApiUsage, SalesforceApiUsage>();
         services.TryAddTransient<SalesforceApiUsageHandler>();
         services.TryAddTransient<SalesforceLoggingHandler>();
+        services.TryAddTransient<SalesforceCompressionHandler>();
 
         if (!services.Any(d => d.ServiceType == typeof(SalesforceCoreMarker)))
         {
@@ -208,6 +209,7 @@ public static class ServiceCollectionExtensions
             api.AddStandardResilienceHandler().Configure((resilience, sp) => ConfigureResilience(resilience, sp.GetRequiredService<IOptions<SalesforceOptions>>().Value));
             api.AddHttpMessageHandler<SalesforceLoggingHandler>();
             api.AddHttpMessageHandler<SalesforceApiUsageHandler>();
+            api.AddHttpMessageHandler<SalesforceCompressionHandler>();
             // The standard resilience handler resets HttpClient.Timeout to infinite (it owns timeouts);
             // re-apply HttpTimeout afterwards so it acts as an outer safety net as documented.
             api.ConfigureHttpClient((sp, c) => c.Timeout = sp.GetRequiredService<IOptions<SalesforceOptions>>().Value.HttpTimeout);

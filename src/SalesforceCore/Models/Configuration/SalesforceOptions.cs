@@ -49,6 +49,19 @@ public class SalesforceOptions
     public string ApiVersion { get; set; } = SalesforceConstants.DefaultApiVersion;
 
     /// <summary>
+    /// Bulk API 2.0 update/upsert: send a present-but-null value as <c>#N/A</c> so Salesforce clears the field, matching
+    /// REST/composite behaviour. An empty cell means "leave unchanged" in Bulk 2.0. Keys absent from a record are
+    /// always sent empty. Default: true (2.4.0). Set false for the 2.3 behaviour (nulls ignored by bulk).
+    /// </summary>
+    public bool BulkNullsAsNA { get; set; } = true;
+
+    /// <summary>
+    /// Opt-in: send <c>Accept-Encoding: gzip</c> on API calls and decompress gzip responses. Saves bandwidth on large
+    /// query/describe responses. Default: false.
+    /// </summary>
+    public bool EnableResponseCompression { get; set; } = false;
+
+    /// <summary>
     /// HTTP request timeout.
     /// Default: 30 seconds
     /// </summary>
