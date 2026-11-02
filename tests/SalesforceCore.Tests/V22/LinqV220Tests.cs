@@ -389,10 +389,10 @@ public class LinqAggregatesV22Tests
     private readonly RecordingExecutor _ex = new();
     private SalesforceQueryable<V22Account> Q => _ex.Query<V22Account>();
 
-    [Fact] public async Task ScalarAggregates_IgnoreOrderLimitAndTrickyLiterals()
+    [Fact] public async Task ScalarAggregates_IgnoreOrderAndTrickyLiterals()
     {
         _ex.Rows.Add(new JsonObject { ["sum"] = 5, ["avg"] = 2.5, ["min"] = 1, ["max"] = 9, ["expr0"] = 3 });
-        var q = Q.Where(a => a.Name == "x WHERE y ORDER BY z LIMIT 1").OrderBy(a => a.Name).Take(5);
+        var q = Q.Where(a => a.Name == "x WHERE y ORDER BY z LIMIT 1").OrderBy(a => a.Name);
         (await q.SumAsync(a => a.AnnualRevenue)).Should().Be(5);
         _ex.Last.Should().Be("SELECT SUM(AnnualRevenue) sum FROM Account WHERE (Name = 'x WHERE y ORDER BY z LIMIT 1')");
         (await ((SalesforceQueryProvider)q.Provider).ExecuteAggregateAsync("SELECT COUNT(Id) FROM Account", default)).Count.Should().Be(3);
@@ -433,8 +433,9 @@ public class LinqAggregatesV22Tests
     {
         await Q.Where(a => a.Name == "a ORDER BY b").OrderBy(a => a.Name).GroupByFieldAsync(a => a.Industry);
         _ex.Last.Should().Be("SELECT Industry, COUNT(Id) cnt FROM Account WHERE (Name = 'a ORDER BY b') GROUP BY Industry");
-        await Q.Take(3).GroupByWithAggregatesAsync(a => a.Industry, default, new AggregateSpec("AnnualRevenue", AggregateFunction.Sum, "total"));
-        _ex.Last.Should().Be("SELECT Industry, SUM(AnnualRevenue) total FROM Account GROUP BY Industry");
+        // 2.2.1: Take/Skip before an aggregate used to be dropped silently (aggregating every row); now it throws.
+        var act = () => Q.Take(3).GroupByWithAggregatesAsync(a => a.Industry, default, new AggregateSpec("AnnualRevenue", AggregateFunction.Sum, "total"));
+        await act.Should().ThrowAsync<NotSupportedException>().WithMessage("*Take/Skip*");
     }
 
     [Fact] public async Task AggregateAsync_FullShape()

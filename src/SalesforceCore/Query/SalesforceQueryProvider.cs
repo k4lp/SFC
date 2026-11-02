@@ -79,26 +79,23 @@ public class SalesforceQueryProvider : IQueryProvider
 
     private static bool ContainsQueryableSelect(Expression expression)
     {
-        var detector = new SelectExpressionDetector();
-        detector.Visit(expression);
-        return detector.Found;
-    }
-
-    private sealed class SelectExpressionDetector : ExpressionVisitor
-    {
-        public bool Found { get; private set; }
-
-        protected override Expression VisitMethodCall(MethodCallExpression node)
+        // Walk only the source chain (argument 0 of each operator). A Select nested inside a predicate lambda
+        // (an inline semi-join: Where(a => sub.Select(c => c.AccountId).Contains(a.Id))) is not a projection
+        // of this query.
+        var current = expression;
+        while (current is MethodCallExpression call)
         {
-            if (node.Method.DeclaringType == typeof(Queryable) &&
-                string.Equals(node.Method.Name, "Select", StringComparison.Ordinal))
+            if (call.Method.DeclaringType == typeof(Queryable) &&
+                string.Equals(call.Method.Name, "Select", StringComparison.Ordinal))
             {
-                Found = true;
-                return node;
+                return true;
             }
 
-            return base.VisitMethodCall(node);
+            if (call.Arguments.Count == 0) break;
+            current = call.Arguments[0];
         }
+
+        return false;
     }
 
     public IQueryable CreateQuery(Expression expression)
@@ -399,6 +396,15 @@ public class SalesforceQueryProvider : IQueryProvider
     {
         var entityType = GetRootElementType(expression);
         var data = ParseExpression(expression, entityType);
+        if (data.Limit.HasValue || data.Offset.HasValue)
+        {
+            // SOQL applies LIMIT/OFFSET to the aggregate rows, not to the rows being aggregated, so honouring
+            // Take/Skip here is impossible and ignoring them would silently aggregate every matching row.
+            throw new NotSupportedException(
+                "Aggregates (Sum/Average/Min/Max/Count distinct/GroupBy/Distinct/AggregateAsync) cannot be applied after Take/Skip: " +
+                "SOQL cannot aggregate a limited subset. Remove Take/Skip, or load the rows and aggregate in memory.");
+        }
+
         var sb = new System.Text.StringBuilder("SELECT ");
         sb.Append(string.Join(", ", selectItems));
         sb.Append(" FROM ").Append(SecurityUtils.SanitizeObjectName(SalesforceMapper.GetObjectName(entityType)));
@@ -916,6 +922,13 @@ public class SalesforceQueryProvider : IQueryProvider
         // Add OFFSET
         if (queryData.Offset.HasValue)
         {
+            if (queryData.Offset.Value > 2000)
+            {
+                throw new NotSupportedException(
+                    $"Skip({queryData.Offset.Value}) exceeds Salesforce's OFFSET maximum of 2000. " +
+                    "Use ToAsyncEnumerable() or keyset paging (Where(a => a.Id > lastId)) for deep paging.");
+            }
+
             soql.Offset(queryData.Offset.Value);
         }
 
@@ -1071,6 +1084,13 @@ public class SalesforceQueryProvider : IQueryProvider
             _logger.LogWarning("Queryable method '{MethodName}' is not supported after a projection.", methodName);
             throw new NotSupportedException(
                 $"Queryable method '{methodName}' is not supported after a projection.");
+        }
+
+        if ((data.Limit.HasValue || data.Offset.HasValue) && ChangesRowSetAfterPaging(methodName, methodCall))
+        {
+            throw new NotSupportedException(
+                $"'{methodName}' after Take/Skip is not supported: SOQL always filters and sorts before LIMIT/OFFSET, " +
+                "so the query would return different rows than LINQ promises. Move Where/OrderBy before Take/Skip.");
         }
 
         switch (methodName)
@@ -1272,6 +1292,13 @@ public class SalesforceQueryProvider : IQueryProvider
                 throw new NotSupportedException($"Queryable method '{methodName}' is not supported by the Salesforce LINQ provider.");
         }
     }
+
+    private static bool ChangesRowSetAfterPaging(string methodName, MethodCallExpression methodCall) => methodName switch
+    {
+        "Where" or "WhereConditionInternal" or "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending" => true,
+        "First" or "FirstOrDefault" or "Single" or "SingleOrDefault" or "Count" or "LongCount" or "Any" => methodCall.Arguments.Count > 1,
+        _ => false
+    };
 
     private static bool IsAllowedAfterProjection(string methodName)
     {

@@ -1,5 +1,13 @@
 # Migrating to SalesforceCore 2.2
 
+<a id="221"></a>
+## 2.2.1
+
+No API changes. These now throw `NotSupportedException` instead of returning wrong rows or sending invalid SOQL:
+`Where`/`OrderBy`/`First(p)`/`Count(p)`/`Any(p)`/`Single(p)` after `Take`/`Skip` (move them before), aggregate helpers
+after `Take`/`Skip` (remove the paging or aggregate in memory), `Skip(k > 2000)`, and field-to-field comparisons.
+Non-nullable enum filters now send the picklist value instead of the ordinal, so they start matching records.
+
 <a id="22"></a>
 2.2.0 is source- and binary-compatible for typical apps. These results change because they were wrong before:
 

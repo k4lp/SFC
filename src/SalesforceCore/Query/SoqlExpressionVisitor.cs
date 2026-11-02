@@ -92,6 +92,13 @@ public class SoqlExpressionVisitor : ExpressionVisitor
             node = Expression.MakeBinary(FlipComparison(node.NodeType), node.Right, node.Left, node.IsLiftedToNull, node.Method);
         }
 
+        if (ContainsParameter(node.Left) && ContainsParameter(node.Right))
+        {
+            throw new NotSupportedException(
+                $"Comparing two fields ({node}) is not supported: SOQL compares a field only against a literal. " +
+                "Use a formula field in Salesforce, or filter in memory.");
+        }
+
         _whereClause.Append('(');
 
         // Handle null comparisons specially
@@ -104,6 +111,7 @@ public class SoqlExpressionVisitor : ExpressionVisitor
         }
 
         Visit(node.Left);
+        var enumType = GetConvertedEnumType(node.Left);
 
         _whereClause.Append(node.NodeType switch
         {
@@ -118,11 +126,31 @@ public class SoqlExpressionVisitor : ExpressionVisitor
             _ => throw new NotSupportedException($"Binary operator '{node.NodeType}' is not supported in SOQL")
         });
 
-        Visit(node.Right);
+        if (enumType != null && !ContainsParameter(node.Right))
+        {
+            // x.EnumField == Stage.Closed compiles to Convert(x.EnumField, int) == 1; send the enum's picklist value.
+            var raw = GetExpressionValue(node.Right);
+            AppendValue(raw == null ? null : Enum.ToObject(enumType, raw));
+        }
+        else
+        {
+            Visit(node.Right);
+        }
 
         _whereClause.Append(')');
 
         return node;
+    }
+
+    private static Type? GetConvertedEnumType(Expression expression)
+    {
+        if (expression is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } u)
+        {
+            var operandType = Nullable.GetUnderlyingType(u.Operand.Type) ?? u.Operand.Type;
+            if (operandType.IsEnum) return operandType;
+        }
+
+        return null;
     }
 
     protected override Expression VisitUnary(UnaryExpression node)
@@ -487,7 +515,8 @@ public class SoqlExpressionVisitor : ExpressionVisitor
 
         if (declaring == typeof(Queryable) || declaring == typeof(Enumerable) || declaring == typeof(MemoryExtensions))
         {
-            if (node.Object == null && node.Arguments.Count == 2)
+            if (node.Object == null && (node.Arguments.Count == 2 ||
+                (node.Arguments.Count == 3 && !ContainsParameter(node.Arguments[2]) && GetExpressionValue(node.Arguments[2]) == null)))
             {
                 collectionExpr = UnwrapSpanConversion(node.Arguments[0]);
                 itemExpr = node.Arguments[1];
@@ -964,6 +993,10 @@ public class SoqlExpressionVisitor : ExpressionVisitor
 
     private sealed class ParameterDetector : ExpressionVisitor
     {
+        // Parameters bound by lambdas nested inside the expression (e.g. c in sub.Select(c => c.AccountId))
+        // are not query parameters: the expression is still evaluable client-side.
+        private readonly HashSet<ParameterExpression> _bound = new();
+
         public bool Found { get; private set; }
 
         public override Expression? Visit(Expression? node)
@@ -973,13 +1006,21 @@ public class SoqlExpressionVisitor : ExpressionVisitor
                 return node;
             }
 
-            if (node.NodeType == ExpressionType.Parameter)
-            {
-                Found = true;
-                return node;
-            }
-
             return base.Visit(node);
+        }
+
+        protected override Expression VisitLambda<TDelegate>(Expression<TDelegate> node)
+        {
+            var added = node.Parameters.Where(_bound.Add).ToList();
+            Visit(node.Body);
+            foreach (var p in added) _bound.Remove(p);
+            return node;
+        }
+
+        protected override Expression VisitParameter(ParameterExpression node)
+        {
+            if (!_bound.Contains(node)) Found = true;
+            return node;
         }
     }
 
@@ -1010,11 +1051,25 @@ public class SoqlExpressionVisitor : ExpressionVisitor
             DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             sbyte or byte or short or ushort or int or uint or long or ulong => Convert.ToString(value, CultureInfo.InvariantCulture)!,
             decimal dec => dec.ToString(CultureInfo.InvariantCulture),
-            double dbl => dbl.ToString(CultureInfo.InvariantCulture),
-            float fl => fl.ToString(CultureInfo.InvariantCulture),
+            double dbl => FormatFloatingPoint(dbl),
+            float fl => FormatFloatingPoint(fl),
             Enum e => $"'{GetEnumSalesforceValue(e)}'",
             _ => $"'{SecurityUtils.SanitizeForSoql(value.ToString() ?? "")}'"
         };
+    }
+
+    /// <summary>
+    /// SOQL numeric literals have no exponent form, so 1E-07 / 1E+20 (what double.ToString emits) are rejected.
+    /// Render through decimal, which always prints positional digits.
+    /// </summary>
+    private static string FormatFloatingPoint(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || Math.Abs(value) > (double)decimal.MaxValue)
+        {
+            throw new NotSupportedException($"The number {value.ToString(CultureInfo.InvariantCulture)} cannot be written as a SOQL literal.");
+        }
+
+        return ((decimal)value).ToString(CultureInfo.InvariantCulture);
     }
 
     private static string FormatDateTimeUtc(DateTime dateTime)
