@@ -67,7 +67,8 @@ Several `Where` calls are ANDed. Comparisons may have the field on either side (
 | `a.Account.Industry == "Tech"` | `Account.Industry = 'Tech'` (parent dot-notation) |
 | `a.CreatedDate.Year == 2026` (`.Month`, `.Day`, `.Hour`, `.DayOfWeek`, `.DayOfYear`) | `CALENDAR_YEAR(CreatedDate) = 2026` … |
 | `a.CreatedDate.Value.Year` on a nullable field | Same as above (`.Value` is ignored) |
-| Enum values | The `[SalesforceValue]` name, or the enum name |
+| Enum values (nullable or not, either side, in `IN` lists) | The `[SalesforceValue]` name, or the enum name (2.2.0 sent the ordinal for non-nullable enums) |
+| `double`/`float` values | Positional digits (`0.0000001`), never exponent form; NaN/Infinity throw |
 
 **Values computed client-side.** Anything that does not touch the lambda parameter is evaluated once and sent as a
 literal: `DateTime.UtcNow.AddDays(-7)`, `new DateOnly(2026, 1, 1)`, `x * y + 1`, `flag ? "A" : "B"`,
@@ -152,7 +153,12 @@ LINQ semantics are preserved (fixed in 2.2):
 | `Skip(2).Skip(3)` | `OFFSET 5` |
 | `Take(0)` | no request at all, empty result |
 
-Salesforce caps `OFFSET` at 2,000. For deep paging, use `ToAsyncEnumerable()` or keyset filters (`Where(a => a.Id > lastId)`).
+`Where`, `OrderBy`/`ThenBy` and predicate terminals (`First(p)`, `Count(p)`, `Any(p)`, `Single(p)`) after `Take`/`Skip`
+throw `NotSupportedException` (2.2.1). SOQL always filters and sorts before `LIMIT`/`OFFSET`, so `Take(5).Where(p)`
+would return "5 rows matching p" instead of "the rows among the first 5 that match p". Put them before `Take`/`Skip`.
+
+Salesforce caps `OFFSET` at 2,000; `Skip(k)` with `k > 2000` throws before the request (2.2.1), except under
+`Count`/`Any`, which never send OFFSET. For deep paging, use `ToAsyncEnumerable()` or keyset filters (`Where(a => a.Id > lastId)`).
 
 ## Counting and existence
 
@@ -162,7 +168,9 @@ more than `k` rows exist. `AllAsync(p)` is `COUNT() WHERE NOT (p) == 0`.
 
 ## Aggregates
 
-Scalar helpers use the query's `Where` and `WITH` only. Its `OrderBy`, `Take` and `Skip` are ignored. In 2.2 the filter is
+Scalar helpers use the query's `Where` and `WITH` only. Its `OrderBy` is ignored. Since 2.2.1 `Take`/`Skip` before any
+aggregate helper (`Sum/Average/Min/Max`, `GroupBy*`, `DistinctAsync`, `CountDistinctAsync`, `AggregateAsync`) throws:
+SOQL cannot aggregate a limited subset, and 2.2.0 silently aggregated every matching row. In 2.2 the filter is
 read from the expression tree, not by cutting SOQL text.
 
 ```csharp
@@ -272,7 +280,7 @@ Each of these throws a `NotSupportedException` whose message names the expressio
 
 * Arithmetic or functions over fields: `a.Amount * 2 > 10`, `a.Name.ToUpper() == "X"`, `a.Name.Length`. SOQL can't
   express them. Compute the value outside the query, or use `SoqlFunctions`.
-* Comparing two fields (`a.A == a.B`). SOQL compares fields only against literals.
+* Comparing two fields (`a.A == a.B`). SOQL compares fields only against literals. (2.2.0 sent invalid SOQL; 2.2.1 throws.)
 * `GroupBy`, `Join`, `SelectMany`, `Reverse`, `Distinct`, `Union` and other LINQ operators the provider doesn't handle.
   Use `AggregateAsync`, `DistinctAsync`, semi-joins, or `UnionAsync`/`ExceptAsync`/`IntersectAsync`, which merge
   results client-side by Id.

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.2.1 — 2026-11-02
+
+Revalidation of the 2.2.0 LINQ release. No API changes. Queries that silently returned wrong data now either return
+the right data or throw a clear `NotSupportedException` before any request. See [MIGRATION.md](MIGRATION.md#221).
+
+### Fixed
+- **Non-nullable enum comparisons sent the ordinal** (`StageName = 1`) instead of the picklist value
+  (`StageName = 'Closed Won'`). Nullable enums and IN lists were already correct.
+- **`enumArray.Contains(x.Field)` threw**: C# 14 binds it to `MemoryExtensions.Contains(span, value, comparer = null)`
+  (three arguments), which the IN-list translator didn't recognise.
+- **Inline semi-joins crashed** with `InvalidCastException`: `Where(a => data.Query<Contact>().Select(c => c.AccountId).Contains(a.Id))`
+  was mistaken for a projection of the outer query, and the inner lambda's parameter blocked client-side evaluation.
+- **`double`/`float` literals used exponent form** (`1E-07`, `1E+20`), which SOQL rejects.
+- **Field-to-field comparisons** (`a.Name == a.Id`) produced invalid SOQL (`Name = Id`) although the docs said they throw.
+- **`Where`/`OrderBy`/predicate terminals after `Take`/`Skip`** were merged into one SOQL statement, changing which rows
+  came back (`Take(5).Where(p)` returned 5 matching rows; `Skip(3).Count(p)` returned `count(p) - 3`). They now throw.
+- **Aggregates after `Take`/`Skip`** (`OrderByDescending(x).Take(10).SumAsync(...)`) silently aggregated every row.
+  They now throw.
+- **`Skip(k)` with `k > 2000`** now throws before sending (Salesforce's OFFSET maximum).
+- Tests that asserted the old aggregate-ignores-Take behaviour were corrected; 9 regression tests added (963 total).
+
 ## 2.2.0 — 2026-10-30
 
 LINQ release. Source-compatible; a few results change because they were wrong before. See
