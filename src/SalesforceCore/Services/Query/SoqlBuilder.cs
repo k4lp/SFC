@@ -26,6 +26,7 @@ public class SoqlBuilder
     private bool _forUpdate;
     private bool _forView;
     private bool _forReference;
+    private string? _withClause;
 
     /// <summary>
     /// Creates a new SOQL builder for the specified object.
@@ -1060,6 +1061,40 @@ public class SoqlBuilder
         return this;
     }
 
+    /// <summary>
+    /// Adds <c>WITH SECURITY_ENFORCED</c>: Salesforce throws if the running user lacks field- or object-level read access.
+    /// </summary>
+    public SoqlBuilder WithSecurityEnforced() { _withClause = "SECURITY_ENFORCED"; return this; }
+
+    /// <summary>
+    /// Adds <c>WITH USER_MODE</c>: the query runs with the running user's sharing rules, FLS and CRUD enforced.
+    /// </summary>
+    public SoqlBuilder WithUserMode() { _withClause = "USER_MODE"; return this; }
+
+    /// <summary>
+    /// Adds <c>WITH SYSTEM_MODE</c>: the query runs in system mode (Apex-style), ignoring the user's permissions.
+    /// </summary>
+    public SoqlBuilder WithSystemMode() { _withClause = "SYSTEM_MODE"; return this; }
+
+    /// <summary>
+    /// Appends an ORDER BY item that the LINQ provider has already built from sanitized parts
+    /// (e.g. a <c>DISTANCE(...)</c> expression or a NULLS FIRST/LAST suffix).
+    /// </summary>
+    internal SoqlBuilder OrderByTrusted(string orderItem)
+    {
+        if (!string.IsNullOrWhiteSpace(orderItem)) _orderByFields.Add(orderItem);
+        return this;
+    }
+
+    /// <summary>
+    /// Appends a SELECT item that the LINQ provider has already built from sanitized parts.
+    /// </summary>
+    internal SoqlBuilder SelectTrusted(string selectItem)
+    {
+        if (!string.IsNullOrWhiteSpace(selectItem)) _selectFields.Add(selectItem);
+        return this;
+    }
+
     #endregion
 
     #region Build
@@ -1091,6 +1126,13 @@ public class SoqlBuilder
         {
             sb.Append(" WHERE ");
             sb.Append(string.Join(" AND ", _whereClauses));
+        }
+
+        // WITH (security mode)
+        if (_withClause != null)
+        {
+            sb.Append(" WITH ");
+            sb.Append(_withClause);
         }
 
         // GROUP BY

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using SalesforceCore.Attributes;
 using SalesforceCore.Mapping;
+using SalesforceCore.Services.Query;
 using SalesforceCore.Utilities;
 
 namespace SalesforceCore.Query;
@@ -71,12 +72,32 @@ public class SoqlExpressionVisitor : ExpressionVisitor
             return node;
         }
 
+        if (!IsComparison(node.NodeType))
+        {
+            // Arithmetic, coalesce, string concat, etc. over captured values: evaluate client-side.
+            if (!ContainsParameter(node))
+            {
+                AppendValue(GetExpressionValue(node));
+                return node;
+            }
+
+            throw new NotSupportedException(
+                $"Operator '{node.NodeType}' over query fields is not supported in SOQL (expression: {node}). " +
+                "Compute the value outside the query, or compare the field against a captured value.");
+        }
+
+        // Normalise "constant op field" to "field op' constant" (SOQL needs the field on the left).
+        if (!ContainsParameter(node.Left) && ContainsParameter(node.Right))
+        {
+            node = Expression.MakeBinary(FlipComparison(node.NodeType), node.Right, node.Left, node.IsLiftedToNull, node.Method);
+        }
+
         _whereClause.Append('(');
 
         // Handle null comparisons specially
-        if (IsNullComparison(node, out var memberExpr, out var isEquals) && memberExpr != null)
+        if (IsNullComparison(node, out var nullPath, out var isEquals) && nullPath != null)
         {
-            VisitMember(memberExpr);
+            _whereClause.Append(nullPath);
             _whereClause.Append(isEquals ? " = NULL" : " != NULL");
             _whereClause.Append(')');
             return node;
@@ -108,6 +129,11 @@ public class SoqlExpressionVisitor : ExpressionVisitor
     {
         if (node.NodeType == ExpressionType.Not)
         {
+            if (node.Operand is MethodCallExpression negatedCall && TryAppendInPredicate(negatedCall, negate: true))
+            {
+                return node;
+            }
+
             _whereClause.Append("NOT ");
             if (!TryAppendBooleanMember(node.Operand, wrapInParentheses: true))
             {
@@ -211,6 +237,41 @@ public class SoqlExpressionVisitor : ExpressionVisitor
 
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
+        if (node.Method.DeclaringType == typeof(SoqlFunctions))
+        {
+            return HandleSoqlFunction(node);
+        }
+
+        // Semi-joins and IN lists (Queryable/Enumerable/List/MemoryExtensions Contains)
+        if (TryAppendInPredicate(node, negate: false))
+        {
+            return node;
+        }
+
+        // string.IsNullOrEmpty(x.Field) / IsNullOrWhiteSpace: Salesforce stores empty text as null.
+        if (node.Method.DeclaringType == typeof(string) && node.Object == null &&
+            node.Method.Name is "IsNullOrEmpty" or "IsNullOrWhiteSpace" &&
+            TryGetMemberPath(node.Arguments[0], out var nullOrEmptyPath))
+        {
+            _whereClause.Append('(').Append(SecurityUtils.SanitizeFieldName(nullOrEmptyPath)).Append(" = NULL)");
+            return node;
+        }
+
+        // Any call that does not touch the query parameter (DateTime.UtcNow.AddDays(-7), Guid.ToString(), helper methods)
+        // is evaluated client-side and sent as a literal.
+        if (!ContainsParameter(node))
+        {
+            if (node.Type == typeof(bool))
+            {
+                // A stand-alone boolean such as list.Contains("C") would become a bare TRUE/FALSE, which SOQL rejects.
+                throw new NotSupportedException(
+                    $"The condition '{node}' does not reference any query field; evaluate it before building the query.");
+            }
+
+            AppendValue(GetExpressionValue(node));
+            return node;
+        }
+
         // String methods
         if (node.Method.DeclaringType == typeof(string))
         {
@@ -231,7 +292,277 @@ public class SoqlExpressionVisitor : ExpressionVisitor
             return HandleCollectionContains(node);
         }
 
-        throw new NotSupportedException($"Method '{node.Method.Name}' is not supported in SOQL");
+        throw new NotSupportedException(
+            $"Method '{node.Method.DeclaringType?.Name}.{node.Method.Name}' is not supported in SOQL (expression: {node}). " +
+            "See docs/19-LINQ-to-SOQL.md for the supported operators, or use SoqlFunctions / WhereCondition for SOQL-specific constructs.");
+    }
+
+    protected override Expression VisitNew(NewExpression node) => EvaluateClientSide(node);
+    protected override Expression VisitNewArray(NewArrayExpression node) => EvaluateClientSide(node);
+    protected override Expression VisitConditional(ConditionalExpression node) => EvaluateClientSide(node);
+    protected override Expression VisitInvocation(InvocationExpression node) => EvaluateClientSide(node);
+    protected override Expression VisitListInit(ListInitExpression node) => EvaluateClientSide(node);
+    protected override Expression VisitMemberInit(MemberInitExpression node) => EvaluateClientSide(node);
+
+    private Expression EvaluateClientSide(Expression node)
+    {
+        if (ContainsParameter(node))
+        {
+            throw new NotSupportedException(
+                $"Expression '{node}' ({node.NodeType}) uses query fields in a way SOQL cannot express. " +
+                "Compare fields directly against captured values.");
+        }
+
+        AppendValue(GetExpressionValue(node));
+        return node;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // SoqlFunctions translation
+    // ---------------------------------------------------------------------------------------
+
+    private Expression HandleSoqlFunction(MethodCallExpression node)
+    {
+        var args = node.Arguments;
+        switch (node.Method.Name)
+        {
+            case nameof(SoqlFunctions.Literal):
+            case nameof(SoqlFunctions.LiteralDate):
+                _whereClause.Append(FormatDateLiteral(args));
+                return node;
+
+            case nameof(SoqlFunctions.DatePart):
+            {
+                var fn = (DateFunction)GetExpressionValue(args[0])!;
+                _whereClause.Append(fn.ToString()).Append('(').Append(RenderFieldOperand(args[1])).Append(')');
+                return node;
+            }
+
+            case nameof(SoqlFunctions.CalendarYear): AppendFunction("CALENDAR_YEAR", args[0]); return node;
+            case nameof(SoqlFunctions.CalendarMonth): AppendFunction("CALENDAR_MONTH", args[0]); return node;
+            case nameof(SoqlFunctions.CalendarQuarter): AppendFunction("CALENDAR_QUARTER", args[0]); return node;
+            case nameof(SoqlFunctions.FiscalYear): AppendFunction("FISCAL_YEAR", args[0]); return node;
+            case nameof(SoqlFunctions.FiscalQuarter): AppendFunction("FISCAL_QUARTER", args[0]); return node;
+            case nameof(SoqlFunctions.FiscalMonth): AppendFunction("FISCAL_MONTH", args[0]); return node;
+            case nameof(SoqlFunctions.WeekInYear): AppendFunction("WEEK_IN_YEAR", args[0]); return node;
+            case nameof(SoqlFunctions.WeekInMonth): AppendFunction("WEEK_IN_MONTH", args[0]); return node;
+            case nameof(SoqlFunctions.DayOnly): AppendFunction("DAY_ONLY", args[0]); return node;
+            case nameof(SoqlFunctions.ConvertTimezone):
+            case nameof(SoqlFunctions.ToLabel):
+                _whereClause.Append(RenderFieldOperand(node));
+                return node;
+
+            case nameof(SoqlFunctions.Includes):
+            case nameof(SoqlFunctions.Excludes):
+            {
+                var values = (GetExpressionValue(args[1]) as IEnumerable<string>)?.ToList() ?? new List<string>();
+                if (values.Count == 0)
+                {
+                    throw new ArgumentException($"SoqlFunctions.{node.Method.Name} needs at least one value.");
+                }
+
+                _whereClause.Append('(').Append(RenderFieldOperand(args[0]))
+                    .Append(node.Method.Name == nameof(SoqlFunctions.Includes) ? " INCLUDES (" : " EXCLUDES (")
+                    .Append(string.Join(", ", values.Select(v => $"'{SecurityUtils.SanitizeForSoql(v)}'")))
+                    .Append("))");
+                return node;
+            }
+
+            case nameof(SoqlFunctions.In):
+            case nameof(SoqlFunctions.NotIn):
+                AppendInSubquery(args[0], args[1], negate: node.Method.Name == nameof(SoqlFunctions.NotIn));
+                return node;
+
+            case nameof(SoqlFunctions.Like):
+            {
+                var pattern = GetExpressionValue(args[1])?.ToString() ?? string.Empty;
+                _whereClause.Append('(').Append(RenderFieldOperand(args[0]))
+                    .Append(" LIKE '").Append(SecurityUtils.SanitizeForSoql(pattern)).Append("')");
+                return node;
+            }
+
+            case nameof(SoqlFunctions.Distance):
+                _whereClause.Append(RenderDistance(node));
+                return node;
+        }
+
+        throw new NotSupportedException($"SoqlFunctions.{node.Method.Name} is not supported here.");
+    }
+
+    private void AppendFunction(string function, Expression field)
+    {
+        _whereClause.Append(function).Append('(').Append(RenderFieldOperand(field)).Append(')');
+    }
+
+    private string FormatDateLiteral(IReadOnlyList<Expression> args)
+    {
+        var literal = (DateLiteral)GetExpressionValue(args[0])!;
+        var needsN = DateLiteralHelper.RequiresParameter(literal);
+        if (args.Count > 1)
+        {
+            if (!needsN)
+            {
+                throw new ArgumentException($"Date literal {literal} does not take an N value.");
+            }
+
+            var n = Convert.ToInt32(GetExpressionValue(args[1]), CultureInfo.InvariantCulture);
+            if (n < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(args), n, "Date literal N must be zero or positive.");
+            }
+
+            return $"{literal}:{n.ToString(CultureInfo.InvariantCulture)}";
+        }
+
+        if (needsN)
+        {
+            throw new ArgumentException($"Date literal {literal} requires an N value: SoqlFunctions.Literal({literal}, n).");
+        }
+
+        return literal.ToString();
+    }
+
+    internal string RenderDistance(MethodCallExpression node)
+    {
+        var args = node.Arguments;
+        var lat = Convert.ToDouble(GetExpressionValue(args[1]), CultureInfo.InvariantCulture);
+        var lon = Convert.ToDouble(GetExpressionValue(args[2]), CultureInfo.InvariantCulture);
+        if (double.IsNaN(lat) || double.IsNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180)
+        {
+            throw new ArgumentOutOfRangeException(nameof(node), "DISTANCE latitude must be in [-90, 90] and longitude in [-180, 180].");
+        }
+
+        var unit = (DistanceUnit)GetExpressionValue(args[3])!;
+        return $"DISTANCE({RenderFieldOperand(args[0])}, GEOLOCATION({lat.ToString(CultureInfo.InvariantCulture)}, {lon.ToString(CultureInfo.InvariantCulture)}), '{(unit == DistanceUnit.Kilometers ? "km" : "mi")}')";
+    }
+
+    /// <summary>
+    /// Renders a field reference, optionally wrapped in toLabel()/convertTimezone().
+    /// </summary>
+    private string RenderFieldOperand(Expression expression)
+    {
+        while (expression is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } u)
+        {
+            expression = u.Operand;
+        }
+
+        if (expression is MethodCallExpression call && call.Method.DeclaringType == typeof(SoqlFunctions))
+        {
+            if (call.Method.Name == nameof(SoqlFunctions.ToLabel))
+                return $"toLabel({RenderFieldOperand(call.Arguments[0])})";
+            if (call.Method.Name == nameof(SoqlFunctions.ConvertTimezone))
+                return $"convertTimezone({RenderFieldOperand(call.Arguments[0])})";
+        }
+
+        if (TryGetMemberPath(expression, out var path))
+        {
+            return SecurityUtils.SanitizeFieldName(path);
+        }
+
+        throw new NotSupportedException($"Expected a field reference (x => x.Field) but found '{expression}'.");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // IN lists and semi-joins
+    // ---------------------------------------------------------------------------------------
+
+    private bool TryAppendInPredicate(MethodCallExpression node, bool negate)
+    {
+        if (node.Method.DeclaringType == typeof(SoqlFunctions) &&
+            node.Method.Name is nameof(SoqlFunctions.In) or nameof(SoqlFunctions.NotIn))
+        {
+            var isNotIn = node.Method.Name == nameof(SoqlFunctions.NotIn);
+            AppendInSubquery(node.Arguments[0], node.Arguments[1], negate ^ isNotIn);
+            return true;
+        }
+
+        if (node.Method.Name != "Contains")
+        {
+            return false;
+        }
+
+        Expression? collectionExpr = null;
+        Expression? itemExpr = null;
+        var declaring = node.Method.DeclaringType;
+
+        if (declaring == typeof(Queryable) || declaring == typeof(Enumerable) || declaring == typeof(MemoryExtensions))
+        {
+            if (node.Object == null && node.Arguments.Count == 2)
+            {
+                collectionExpr = UnwrapSpanConversion(node.Arguments[0]);
+                itemExpr = node.Arguments[1];
+            }
+        }
+        else if (node.Object != null && node.Arguments.Count == 1 && declaring != typeof(string) &&
+                 typeof(System.Collections.IEnumerable).IsAssignableFrom(node.Object.Type))
+        {
+            collectionExpr = node.Object;
+            itemExpr = node.Arguments[0];
+        }
+
+        if (collectionExpr == null || itemExpr == null || ContainsParameter(collectionExpr) || !ContainsParameter(itemExpr))
+        {
+            return false;
+        }
+
+        var collection = GetExpressionValue(collectionExpr);
+        if (collection is IQueryable queryable && queryable.Provider is SalesforceQueryProvider)
+        {
+            AppendInSubquery(itemExpr, collectionExpr, negate);
+            return true;
+        }
+
+        var values = ExtractValues(collection as System.Collections.IEnumerable);
+        if (values.Count == 0)
+        {
+            // x IN () is always false; NOT IN () is always true.
+            _whereClause.Append(negate ? "(Id != NULL)" : "(Id = NULL)");
+            return true;
+        }
+
+        _whereClause.Append(RenderFieldOperand(itemExpr));
+        _whereClause.Append(negate ? " NOT IN (" : " IN (");
+        _whereClause.Append(string.Join(", ", values.Select(FormatValue)));
+        _whereClause.Append(')');
+        return true;
+    }
+
+    private void AppendInSubquery(Expression fieldExpr, Expression subqueryExpr, bool negate)
+    {
+        if (GetExpressionValue(subqueryExpr) is not IQueryable subquery || subquery.Provider is not SalesforceQueryProvider provider)
+        {
+            throw new NotSupportedException("A semi-join subquery must be a Salesforce queryable (data.Query<T>().Select(x => x.Field)).");
+        }
+
+        _whereClause.Append(RenderFieldOperand(fieldExpr));
+        _whereClause.Append(negate ? " NOT IN (" : " IN (");
+        _whereClause.Append(provider.BuildSemiJoinSoql(subquery.Expression));
+        _whereClause.Append(')');
+    }
+
+    /// <summary>
+    /// C# 14 binds <c>array.Contains(x)</c> to <c>MemoryExtensions.Contains(ReadOnlySpan)</c> via an implicit
+    /// conversion; peel that conversion off to get back to the array.
+    /// </summary>
+    private static Expression UnwrapSpanConversion(Expression expression)
+    {
+        while (true)
+        {
+            switch (expression)
+            {
+                case MethodCallExpression { Method.Name: "op_Implicit", Arguments.Count: 1 } implicitCall:
+                    expression = implicitCall.Arguments[0];
+                    continue;
+                case UnaryExpression { NodeType: ExpressionType.Convert, Method.Name: "op_Implicit" } convert:
+                    expression = convert.Operand;
+                    continue;
+                case UnaryExpression { NodeType: ExpressionType.Convert } plain when plain.Type.IsByRefLike:
+                    expression = plain.Operand;
+                    continue;
+                default:
+                    return expression;
+            }
+        }
     }
 
     private Expression HandleStringMethod(MethodCallExpression node)
@@ -275,7 +606,9 @@ public class SoqlExpressionVisitor : ExpressionVisitor
                 return node;
 
             default:
-                throw new NotSupportedException($"String method '{methodName}' is not supported in SOQL");
+                throw new NotSupportedException(
+                    $"String method '{methodName}' is not supported in SOQL (expression: {node}). " +
+                    "See docs/19-LINQ-to-SOQL.md; SoqlFunctions.Like covers custom LIKE patterns.");
         }
     }
 
@@ -339,25 +672,24 @@ public class SoqlExpressionVisitor : ExpressionVisitor
         return node;
     }
 
-    private bool IsNullComparison(BinaryExpression node, out MemberExpression? memberExpr, out bool isEquals)
+    private bool IsNullComparison(BinaryExpression node, out string? fieldPath, out bool isEquals)
     {
-        memberExpr = null;
+        fieldPath = null;
         isEquals = node.NodeType == ExpressionType.Equal;
 
         if (node.NodeType != ExpressionType.Equal && node.NodeType != ExpressionType.NotEqual)
             return false;
 
-        // Check left is member and right is null constant
-        if (node.Left is MemberExpression leftMember && IsNullConstant(node.Right))
+        // Field (possibly wrapped in a nullable Convert) compared to a null constant, on either side.
+        if (IsNullConstant(node.Right) && TryGetMemberPath(node.Left, out var left))
         {
-            memberExpr = leftMember;
+            fieldPath = SecurityUtils.SanitizeFieldName(left);
             return true;
         }
 
-        // Check right is member and left is null constant
-        if (node.Right is MemberExpression rightMember && IsNullConstant(node.Left))
+        if (IsNullConstant(node.Left) && TryGetMemberPath(node.Right, out var right))
         {
-            memberExpr = rightMember;
+            fieldPath = SecurityUtils.SanitizeFieldName(right);
             return true;
         }
 
@@ -366,8 +698,23 @@ public class SoqlExpressionVisitor : ExpressionVisitor
 
     private static bool IsNullConstant(Expression expr)
     {
+        while (expr is UnaryExpression { NodeType: ExpressionType.Convert } u) expr = u.Operand;
         return expr is ConstantExpression { Value: null };
     }
+
+    private static bool IsComparison(ExpressionType type) => type is
+        ExpressionType.Equal or ExpressionType.NotEqual or
+        ExpressionType.GreaterThan or ExpressionType.GreaterThanOrEqual or
+        ExpressionType.LessThan or ExpressionType.LessThanOrEqual;
+
+    private static ExpressionType FlipComparison(ExpressionType type) => type switch
+    {
+        ExpressionType.GreaterThan => ExpressionType.LessThan,
+        ExpressionType.GreaterThanOrEqual => ExpressionType.LessThanOrEqual,
+        ExpressionType.LessThan => ExpressionType.GreaterThan,
+        ExpressionType.LessThanOrEqual => ExpressionType.GreaterThanOrEqual,
+        _ => type
+    };
 
     private bool IsClosureAccess(MemberExpression node, out object? value)
     {
@@ -538,6 +885,13 @@ public class SoqlExpressionVisitor : ExpressionVisitor
 
         while (current is MemberExpression member)
         {
+            // x.NullableField.Value is the same SOQL field as x.NullableField.
+            if (member.Member.Name == "Value" && member.Expression != null && Nullable.GetUnderlyingType(member.Expression.Type) != null)
+            {
+                current = member.Expression;
+                continue;
+            }
+
             parts.Insert(0, GetSalesforceFieldName(member.Member, member.Member.DeclaringType));
             current = member.Expression;
 

@@ -36,3 +36,22 @@ public interface ISoqlQueryExecutor
     /// <returns>Async enumerable of records.</returns>
     IAsyncEnumerable<JsonObject> QueryAllAsyncEnumerable(string soql, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Optional capability for executors that can read deleted and archived rows through the REST
+/// <c>queryAll</c> resource. <see cref="Services.Data.DataService"/> implements it; the LINQ
+/// <c>IncludeDeleted()</c> operator requires it. Kept separate from <see cref="ISoqlQueryExecutor"/>
+/// so existing custom executors keep compiling.
+/// </summary>
+public interface ISoqlDeletedRowsQueryExecutor
+{
+    /// <summary>
+    /// Executes a SOQL query against <c>/queryAll/</c> (includes deleted and archived records). First page only.
+    /// </summary>
+    Task<QueryResult> QueryIncludingDeletedAsync(string soql, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Streams every page of a <c>/queryAll/</c> query, following <c>nextRecordsUrl</c>.
+    /// </summary>
+    IAsyncEnumerable<JsonObject> QueryAllIncludingDeletedAsyncEnumerable(string soql, CancellationToken cancellationToken = default);
+}

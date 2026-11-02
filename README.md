@@ -322,7 +322,11 @@ SalesforceCore/
 | **Dynamic SOQL** | Build queries dynamically when types aren't known at compile time | `_data.QueryAsync("SELECT Id FROM Account")` |
 | **SOSL Search** | Full-text search across multiple objects | `_search.FindAsync("Acme", new[] { "Account", "Contact" })` |
 | **Smart Pagination** | Automatic handling of `queryMore` for large result sets | Transparent cursor management |
-| **Relationship Queries** | Query parent and child relationships | `Query<Contact>().Include(c => c.Account)` |
+| **Relationship Queries** | Parent dot-notation and child subqueries | `Query<Account>().Include("Contacts", "Id", "Email")` |
+| **Semi-joins / anti-joins** | `IN (SELECT …)` / `NOT IN (SELECT …)` | `Where(a => contacts.Select(c => c.AccountId).Contains(a.Id))` |
+| **SOQL functions** | Date literals, date functions, INCLUDES/EXCLUDES, DISTANCE, toLabel | `Where(a => a.CreatedDate >= SoqlFunctions.Literal(DateLiteral.LAST_N_DAYS, 30))` |
+| **GROUP BY / HAVING / ROLLUP / CUBE** | Fluent, injection-safe aggregate builder | `AggregateAsync(g => g.GroupBy(o => o.StageName).Sum(o => o.Amount, "total"))` |
+| **Security modes & deleted rows** | `WITH SECURITY_ENFORCED / USER_MODE / SYSTEM_MODE`, queryAll | `Query<Account>().WithUserMode().IncludeDeleted()` |
 | **Aggregate Queries** | COUNT, SUM, AVG, MIN, MAX operations | `Query<Account>().CountAsync()` |
 | **Recent Items** | Access user's recently viewed records | `_data.GetRecentItemsAsync("Account", 10)` |
 
@@ -345,6 +349,15 @@ These operators provide workarounds for SOQL limitations:
 | **ForUpdate** | Lock records for update (FOR UPDATE) | `Query<Account>().ForUpdate().ToListAsync()` |
 | **ForView** | Track recently viewed (FOR VIEW) | `Query<Account>().ForView().ToListAsync()` |
 | **ForReference** | Track recently referenced (FOR REFERENCE) | `Query<Account>().ForReference().ToListAsync()` |
+| **NullsFirst / NullsLast** | `ORDER BY … NULLS FIRST/LAST` | `OrderBy(a => a.Rating).NullsLast()` |
+| **WithSecurityEnforced / WithUserMode / WithSystemMode** | `WITH …` security mode (also on Count/Any/aggregates) | `Query<Account>().WithUserMode()` |
+| **IncludeDeleted** | Query deleted and archived rows (`/queryAll/`) | `Query<Account>().IncludeDeleted().Where(a => a.IsDeleted)` |
+| **AggregateAsync** | GROUP BY [ROLLUP/CUBE], COUNT/SUM/AVG/MIN/MAX/COUNT_DISTINCT, HAVING, ORDER BY, LIMIT | see [LINQ guide](docs/19-LINQ-to-SOQL.md#aggregates) |
+| **CountDistinctAsync** | `COUNT_DISTINCT(field)` | `Query<Opportunity>().CountDistinctAsync(o => o.OwnerId)` |
+| **First/Single/Any/Count/LongCount Async** | Async terminals with predicates, on entities and projections | `Query<Account>().SingleOrDefaultAsync(a => a.Ext__c == key)` |
+| **ToSoql** | Show the SOQL of any query or projection | `Query<Account>().Where(...).Select(a => a.Name).ToSoql()` |
+
+The complete operator list, every SOQL translation and the unsupported cases are in **[docs/19-LINQ-to-SOQL.md](docs/19-LINQ-to-SOQL.md)**.
 
 #### DateTime Member Translation
 
@@ -414,6 +427,21 @@ var contactsWithAccounts = await _data.Query<Contact>()
     .Where(c => c.Account.Industry == "Technology")
     .Select(c => new { c.Name, AccountName = c.Account.Name })
     .ToListAsync();
+
+// 2.2: semi-join, date literal, multi-select picklist, NULLS LAST, security mode
+var withContacts = _data.Query<Contact>().Where(c => c.Email != null).Select(c => c.AccountId);
+var accounts = await _data.Query<Account>()
+    .Where(a => withContacts.Contains(a.Id))                                  // Id IN (SELECT AccountId FROM Contact …)
+    .Where(a => a.CreatedDate >= SoqlFunctions.Literal(DateLiteral.LAST_N_DAYS, 90))
+    .Where(a => SoqlFunctions.Includes(a.Regions__c, "EMEA", "APAC"))
+    .OrderBy(a => a.Rating).NullsLast()
+    .WithUserMode()
+    .ToListAsync();
+
+// 2.2: GROUP BY with HAVING
+var byStage = await _data.Query<Opportunity>()
+    .Where(o => o.IsClosed)
+    .AggregateAsync(g => g.GroupBy(o => o.StageName).Count().Sum(o => o.Amount, "total").HavingCount(">", 5));
 ```
 
 #### Extended LINQ Operator Examples
@@ -746,10 +774,10 @@ Add this `nuget.config` beside your `.sln`/`.csproj`. It keeps nuget.org for nor
 ```
 
 ```bash
-dotnet add package SalesforceCore --version 2.1.0
-dotnet add package SalesforceCore.AspNetCore --version 2.1.0
-dotnet add package SalesforceCore.SqlServer --version 2.1.0   # optional
-dotnet tool install --global SalesforceCore.ModelGenerator --version 2.1.0
+dotnet add package SalesforceCore --version 2.2.0
+dotnet add package SalesforceCore.AspNetCore --version 2.2.0
+dotnet add package SalesforceCore.SqlServer --version 2.2.0   # optional
+dotnet tool install --global SalesforceCore.ModelGenerator --version 2.2.0
 ```
 
 Don't pass `--source` / `--add-source`: `--source` replaces your configured feeds (so dependencies like CsvHelper can't restore), and `dotnet tool install` rejects `--add-source` when package source mapping is on. The `nuget.config` above handles both.
@@ -1494,6 +1522,7 @@ Scaffolds a complete form based on model metadata:
 | [08-Model-Generator-CLI.md](docs/08-Model-Generator-CLI.md) | CLI tool reference |
 | [09-Security.md](docs/09-Security.md) | Security |
 | [18-Extensibility-and-Pipeline.md](docs/18-Extensibility-and-Pipeline.md) | 2.0 composition, HTTP pipeline, raw requests, typed errors |
+| [19-LINQ-to-SOQL.md](docs/19-LINQ-to-SOQL.md) | LINQ provider guide: every operator, SOQL translation table, aggregates, semi-joins, limits |
 | [10-API-Reference.md](docs/10-API-Reference.md) | Complete API reference |
 | [11-Additional-Services.md](docs/11-Additional-Services.md) | Files, Reports, Tooling |
 | [12-Tutorial-MVC-CRUD-App.md](docs/12-Tutorial-MVC-CRUD-App.md) | Step-by-step MVC tutorial |

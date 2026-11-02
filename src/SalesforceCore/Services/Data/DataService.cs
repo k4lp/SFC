@@ -9,6 +9,7 @@ using SalesforceCore.Security;
 using SalesforceCore.Services.Caching;
 using SalesforceCore.Services.Core;
 using SalesforceCore.Services.Metadata;
+using SalesforceCore.Query;
 using SalesforceCore.Services.Query; // Ensure SoqlBuilder is found
 using SalesforceCore.Utilities;
 
@@ -17,7 +18,7 @@ namespace SalesforceCore.Services.Data;
 /// <summary>
 /// Implementation of data operations for Salesforce.
 /// </summary>
-public class DataService : IDataService
+public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
 {
     private readonly ISalesforceClient _client;
     private readonly ISchemaService _schemaService;
@@ -50,7 +51,18 @@ public class DataService : IDataService
     #region Query Operations
 
     /// <inheritdoc/>
-    public async Task<QueryResult> QueryAsync(string soql, CancellationToken cancellationToken = default)
+    public Task<QueryResult> QueryAsync(string soql, CancellationToken cancellationToken = default)
+        => QueryCoreAsync(soql, "/query/", cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<QueryResult> QueryIncludingDeletedAsync(string soql, CancellationToken cancellationToken = default)
+        => QueryCoreAsync(soql, "/queryAll/", cancellationToken);
+
+    /// <inheritdoc/>
+    public IAsyncEnumerable<JsonObject> QueryAllIncludingDeletedAsyncEnumerable(string soql, CancellationToken cancellationToken = default)
+        => StreamPagesAsync(soql, includeDeleted: true, cancellationToken);
+
+    private async Task<QueryResult> QueryCoreAsync(string soql, string endpoint, CancellationToken cancellationToken)
     {
         if (_options.ValidateSoqlInputs)
         {
@@ -66,7 +78,7 @@ public class DataService : IDataService
         }
 
         var encodedSoql = UrlUtils.Escape(soql);
-        var result = await _client.GetAsync<QueryResult>($"/query/?q={encodedSoql}", cancellationToken);
+        var result = await _client.GetAsync<QueryResult>($"{endpoint}?q={encodedSoql}", cancellationToken);
         return result;
     }
 
@@ -110,11 +122,17 @@ public class DataService : IDataService
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<JsonObject> QueryAllAsyncEnumerable(
+    public IAsyncEnumerable<JsonObject> QueryAllAsyncEnumerable(string soql, CancellationToken cancellationToken = default)
+        => StreamPagesAsync(soql, includeDeleted: false, cancellationToken);
+
+    private async IAsyncEnumerable<JsonObject> StreamPagesAsync(
         string soql,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        bool includeDeleted,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var result = await QueryAsync(soql, cancellationToken);
+        var result = includeDeleted
+            ? await QueryIncludingDeletedAsync(soql, cancellationToken)
+            : await QueryAsync(soql, cancellationToken);
         var seenCursors = new HashSet<string>(StringComparer.Ordinal);
 
         while (true)
