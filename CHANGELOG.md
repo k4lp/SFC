@@ -1,5 +1,57 @@
 # Changelog
 
+## 2.2.0 — 2026-10-30
+
+LINQ release. Source-compatible; a few results change because they were wrong before. See
+[MIGRATION.md](MIGRATION.md#22). Full guide: [docs/19-LINQ-to-SOQL.md](docs/19-LINQ-to-SOQL.md).
+
+### Fixed
+- `Take(n).Skip(k)` sent `LIMIT n OFFSET k` (n rows after k), LINQ means `LIMIT n-k`; `Take(a).Take(b)` used the last
+  value instead of the minimum; `Skip(a).Skip(b)` used the last value instead of the sum.
+- `Count()`/`CountAsync()` after `Skip`/`Take` downloaded every row to count them; it now sends one `SELECT COUNT()`
+  and clamps (`clamp(total - k, 0, n)`). `Any()` after `Skip(k)` ignored the skip.
+- `SumAsync`/`AverageAsync`/`MinAsync`/`MaxAsync` cut the SOQL text at `" WHERE "` and kept `ORDER BY`/`LIMIT` (invalid
+  in aggregate queries); `GroupBy*Async` broke on string literals containing `" WHERE "`/`" ORDER BY "`; `DistinctAsync`
+  used only the last `Where` and ignored `WhereCondition`. All now read the filter from the expression tree.
+- `AggregateResult` values were re-wrapped as `JsonNode` (a switch-expression implicit conversion), so `Get<decimal>()`,
+  `Get<int?>()` and `Count` returned 0/default for every aggregate. `Get<T>` also failed for nullable targets.
+- `5 < x.Field` (constant on the left) produced invalid SOQL; it is now flipped to `Field > 5`.
+- Parameter-free calls such as `DateTime.UtcNow.AddDays(-7)`, `new DateOnly(...)`, `a * b`, ternaries threw
+  "not supported"; they are now evaluated client-side and sent as literals.
+- `x.Nullable == null` with a `Convert` node and `x.Nullable.Value.Year` / `OrderBy(x => x.Date.Value)` produced
+  `Field.Value` paths.
+- `Select` with computed expressions (`x.First + " " + x.Last`, `new { Big = x.N > 5 }`) threw; they now select every
+  field read and project client-side.
+- `ToListAsync`/`ToListAllAsync`/`ToAsyncEnumerable` required `class, new()`, so projections to strings, numbers or
+  anonymous types could not run asynchronously.
+- `ElementAtAsync` after `Take` could return a row past the `Take`.
+
+### Added
+- `SoqlFunctions`: date literals (`Literal`, `LiteralDate`, incl. `LAST_N_DAYS:n`), date functions (`CalendarYear`,
+  `CalendarMonth`, `CalendarQuarter`, `FiscalYear/Quarter/Month`, `WeekInYear/Month`, `DayOnly`, `DatePart`,
+  `ConvertTimezone`), `Includes`/`Excludes`, `ToLabel`, raw `Like`, `Distance` (Where and OrderBy), `In`/`NotIn`.
+- Semi-joins and anti-joins: `sub.Contains(x.Id)`, `!sub.Contains(x.Id)`, `SoqlFunctions.In/NotIn` → `IN (SELECT …)`.
+- `!list.Contains(x.F)` → `NOT IN (…)`; `string.IsNullOrEmpty/IsNullOrWhiteSpace(x.F)` → `F = NULL`; `HashSet`/any
+  `IEnumerable` and C# 14 span-bound `array.Contains`.
+- `NullsFirst()` / `NullsLast()`; `WithSecurityEnforced()`, `WithUserMode()`, `WithSystemMode()` (also applied to
+  Count/Any/aggregates) and the same on `SoqlBuilder`.
+- `IncludeDeleted()` → REST `queryAll`; new optional `ISoqlDeletedRowsQueryExecutor` (implemented by `DataService`:
+  `QueryIncludingDeletedAsync`, `QueryAllIncludingDeletedAsyncEnumerable`).
+- `AggregateAsync(g => g.GroupBy(...).Rollup()/Cube().Count().Sum().Average().Min().Max().CountDistinct()
+  .Having(...).HavingCount(...).OrderBy(...).OrderByAggregate(...).Limit(...))`, `ToAggregateSoql`, `CountDistinctAsync`.
+- Async terminals on any Salesforce queryable (entities and projections): `AnyAsync`, `CountAsync(predicate)`,
+  `LongCountAsync`, `FirstAsync`, `FirstOrDefaultAsync(predicate)`, `SingleAsync`, `SingleOrDefaultAsync`; sync `LongCount`.
+- `ToSoql()` for projections (`IQueryable<T>` extension).
+- Clearer `NotSupportedException` messages that name the expression and point to the LINQ guide.
+- `docs/19-LINQ-to-SOQL.md`: operator reference and LINQ→SOQL translation table.
+
+### Changed
+- `SalesforceQueryable.cs` (2,650 lines) split into `SalesforceQueryable.cs`, `SalesforceQueryProvider.cs`,
+  `QueryModels.cs` and partial `SalesforceQueryExtensions.*.cs` files (no API change).
+- `Take(0)` returns an empty result without a request.
+- 57 tests (897 → 954). LINQ layer (`src/SalesforceCore/Query`) line coverage 54.4% → 82.9%
+  (`SalesforceQueryProvider` 65.3% → 88.2%); overall 46.4% → 49.8%.
+
 ## 2.1.0 — 2026-10-30
 
 Robustness release. Source-compatible for almost all apps; see [MIGRATION.md](MIGRATION.md#21) for the few signature changes.

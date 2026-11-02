@@ -2,6 +2,8 @@
 
 LINQ-to-SOQL with strongly-typed models. Use when you have C# classes mapped to Salesforce objects.
 
+> **2.2:** the full LINQ reference (every operator, LINQ→SOQL translation table, semi-joins, date literals, GROUP BY/HAVING/ROLLUP/CUBE, security modes, `IncludeDeleted`) is in [19-LINQ-to-SOQL.md](19-LINQ-to-SOQL.md).
+
 ## Requirements
 - **Required**: Model classes with `[SalesforceObject]`, `[SalesforceField]`, etc.; configured `Salesforce` options; working `ITokenProvider`.
 - **Recommended**: Keep models in a shared library; validate SOQL inputs enabled.

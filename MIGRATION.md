@@ -1,3 +1,23 @@
+# Migrating to SalesforceCore 2.2
+
+<a id="22"></a>
+2.2.0 is source- and binary-compatible for typical apps. These results change because they were wrong before:
+
+| Change | Impact |
+|---|---|
+| `Take(n).Skip(k)` now sends `LIMIT n-k OFFSET k`; `Take(a).Take(b)` uses `min(a, b)`; `Skip(a).Skip(b)` uses `a + b` | Matches LINQ. Code that relied on the old (wrong) row counts returns fewer/other rows. |
+| `Count()` with `Skip`/`Take` sends `SELECT COUNT()` and clamps locally | Same number, no row download. |
+| `AggregateResult` values are CLR values (`decimal`, `string`, `bool`, `null`) instead of `JsonNode` | `Get<T>()` and `Count` now return real values. Code that cast `result["x"]` to `JsonNode` must use `Get<T>`/the CLR value. |
+| Aggregate helpers (`SumAsync`, `GroupBy*Async`, `DistinctAsync`) ignore the query's `OrderBy`/`Take`/`Skip` and keep every `Where`/`WhereCondition` | Previously the SOQL was invalid or filters were dropped. |
+| Parameter-free sub-expressions are evaluated client-side | `Where(a => a.Date > DateTime.UtcNow.AddDays(-7))` now works instead of throwing. |
+| `Select` with computed expressions now works (selects every field read) | Previously `NotSupportedException`. |
+| `ToListAsync`/`ToListAllAsync`/`ToAsyncEnumerable` (`IQueryable<T>` extensions) no longer require `T : class, new()` | Source-compatible; projections to scalars/anonymous types can run async. |
+| `Take(0)` returns empty without a request | Previously sent `LIMIT 0`. |
+| `ISoqlDeletedRowsQueryExecutor` is new and optional | Only needed by custom executors that want `IncludeDeleted()`. `ISoqlQueryExecutor` is unchanged. |
+| `SalesforceQueryable.cs` split into several files | Source layout only; types, namespaces and members are unchanged. |
+
+---
+
 # Migrating to SalesforceCore 2.1
 
 <a id="21"></a>
