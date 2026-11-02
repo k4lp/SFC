@@ -816,7 +816,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             dropNullValues: true);
 
         var bulkResult = await _bulkService.InsertAsync(sObject, filteredRecords, cancellationToken: cancellationToken);
-        return ConvertBulkResult(bulkResult, true);
+        return ConvertBulkResult(bulkResult, true, filteredRecords);
     }
 
     private async Task<BatchResult> ExecuteBulkUpdateAsync(
@@ -834,7 +834,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             dropNullValues: false);
 
         var bulkResult = await _bulkService.UpdateAsync(sObject, filteredRecords, cancellationToken: cancellationToken);
-        return ConvertBulkResult(bulkResult, true);
+        return ConvertBulkResult(bulkResult, true, filteredRecords);
     }
 
     private async Task<BatchResult> ExecuteBulkUpsertAsync(
@@ -853,7 +853,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             dropNullValues: false);
 
         var bulkResult = await _bulkService.UpsertAsync(sObject, externalIdField, filteredRecords, cancellationToken: cancellationToken);
-        return ConvertBulkResult(bulkResult, true);
+        return ConvertBulkResult(bulkResult, true, filteredRecords);
     }
 
     private async Task<BatchResult> ExecuteBulkDeleteAsync(
@@ -864,11 +864,12 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
         _logger.LogInformation("Using Bulk API to delete {Count} {Object} records", ids.Count, sObject);
 
         var bulkResult = await _bulkService.DeleteAsync(sObject, ids, cancellationToken: cancellationToken);
-        return ConvertBulkResult(bulkResult, true);
+        return ConvertBulkResult(bulkResult, true, ids.Select(id => new Dictionary<string, object?> { ["Id"] = id }).ToList());
     }
 
-    private static BatchResult ConvertBulkResult(BulkJobResults bulkResult, bool usedBulk)
+    private static BatchResult ConvertBulkResult(BulkJobResults bulkResult, bool usedBulk, IReadOnlyList<Dictionary<string, object?>> inputs)
     {
+        var failedIndexes = MapFailedRowsToInputIndexes(bulkResult.FailedRecords, inputs);
         var result = new BatchResult
         {
             UsedBulkApi = usedBulk,
@@ -886,9 +887,10 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
 
         if (bulkResult.FailedRecords != null)
         {
-            result.FailedRecords = bulkResult.FailedRecords.Select(r => new BatchRecordError
+            result.FailedRecords = bulkResult.FailedRecords.Select((r, i) => new BatchRecordError
             {
-                Index = r.RowNumber,
+                // Index into the caller's input (as on the composite path), not the row number in the failure file.
+                Index = failedIndexes[i],
                 Message = r.Error ?? "Unknown error"
             }).ToList();
         }
@@ -897,6 +899,32 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
     }
 
     #endregion
+
+    /// <summary>
+    /// Bulk 2.0 failure files echo the submitted columns but not the input position (and are not in input order),
+    /// so match each failed row back to the first unused input with identical column values. -1 if no match.
+    /// </summary>
+    private static int[] MapFailedRowsToInputIndexes(List<BulkRecordResult>? failed, IReadOnlyList<Dictionary<string, object?>> inputs)
+    {
+        if (failed == null || failed.Count == 0) return Array.Empty<int>();
+        var columns = failed[0].OriginalData?.Keys.ToList() ?? new List<string>();
+        string Key(Func<string, string?> get) => string.Join("\u001f", columns.Select(c => get(c) ?? string.Empty));
+
+        var byKey = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+        for (var i = 0; i < inputs.Count; i++)
+        {
+            var input = new Dictionary<string, object?>(inputs[i], StringComparer.OrdinalIgnoreCase);
+            var key = Key(c => input.TryGetValue(c, out var v) ? BulkService.FormatCsvValue(v) : null);
+            if (!byKey.TryGetValue(key, out var queue)) byKey[key] = queue = new Queue<int>();
+            queue.Enqueue(i);
+        }
+
+        return failed.Select(f =>
+        {
+            var key = Key(c => f.OriginalData != null && f.OriginalData.TryGetValue(c, out var v) ? v : null);
+            return byKey.TryGetValue(key, out var q) && q.Count > 0 ? q.Dequeue() : -1;
+        }).ToArray();
+    }
 
     #region Composite API Helpers
 

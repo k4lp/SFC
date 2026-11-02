@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore</PackageId>
-    <Version>2.2.1</Version>
+    <Version>2.3.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore</Product>
@@ -19,7 +19,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>2.2.1: LINQ release - correct Take/Skip/Count semantics, semi/anti-joins, date literals and functions, INCLUDES/EXCLUDES, DISTANCE, toLabel, NULLS FIRST/LAST, WITH SECURITY_ENFORCED/USER_MODE/SYSTEM_MODE, IncludeDeleted (queryAll), fluent GROUP BY/ROLLUP/CUBE/HAVING, async First/Single/Any/LongCount, computed projections, fixed aggregate results. See CHANGELOG.md, MIGRATION.md and docs/19-LINQ-to-SOQL.md.</PackageReleaseNotes>
+    <PackageReleaseNotes>2.3.0: LINQ release - correct Take/Skip/Count semantics, semi/anti-joins, date literals and functions, INCLUDES/EXCLUDES, DISTANCE, toLabel, NULLS FIRST/LAST, WITH SECURITY_ENFORCED/USER_MODE/SYSTEM_MODE, IncludeDeleted (queryAll), fluent GROUP BY/ROLLUP/CUBE/HAVING, async First/Single/Any/LongCount, computed projections, fixed aggregate results. See CHANGELOG.md, MIGRATION.md and docs/19-LINQ-to-SOQL.md.</PackageReleaseNotes>
     <Copyright>Copyright (c) 2024 SalesforceCore Contributors</Copyright>
 
     <!-- Build Settings -->

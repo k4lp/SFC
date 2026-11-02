@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.3.0 — 2026-11-02
+
+End-to-end audit of the whole library against a fake Salesforce served by ASP.NET Core TestServer and the real DI
+pipeline (new `tests/SalesforceCore.E2E` project). See [MIGRATION.md](MIGRATION.md#230).
+
+### Fixed
+- **POST/PATCH were retried on 5xx, 408 and connection errors**, so a create whose response was lost at a gateway
+  created a duplicate record (reproduced: 1 call, 2 records). POST/PATCH now retry only on 429.
+- **Bulk query returned only the first page**: `IBulkService.QueryAsync` ignored `Sforce-Locator`. All pages are now
+  fetched and merged under one header.
+- **Bulk CSV used the thread culture**: under de-DE `1234.5` was sent as `"1234,5"` and dates as `02.01.2024 03:04:05`.
+  Values are now invariant (ISO-8601 UTC, `true`/`false`).
+- **Bulk jobs that ended `Failed`/`Aborted` returned an empty success** (0 ok, 0 failed, no error). They now throw with
+  Salesforce's `errorMessage`.
+- **`BatchCreate/Update/Upsert/DeleteAsync` on the Bulk path reported the wrong failure `Index`** (row number in the
+  failure file, 1-based). It is now the index into the caller's input, like the composite path.
+- **Bulk result values were trimmed**, altering data with leading/trailing spaces.
+- **Composite `allOrNone: true` over 25 records was split into several calls**, so earlier calls committed while a later
+  one rolled back. It now throws `ArgumentException`.
+- **Late 401s triggered extra token refreshes**: a request whose 401 arrived after another request had refreshed now
+  reuses the new token instead of authenticating again.
+- **`Retry-After` from `SalesforceExceptionMiddleware`** was `TotalSeconds.ToString()` (`1.5`, or `1,5` under de-DE). It
+  is now whole seconds, rounded up.
+- **`FileService` ignored `SalesforceOptions.MaxFileUploadSize`** (hard-coded 25 MB).
+- **Model generator**: a field named like its object (`Invoice__c.Invoice__c`) produced CS0542 and duplicate sanitised
+  names collided; `Id` produced CS8618; picklist attributes stopped at 20 values. Generated code now compiles warning-free
+  (verified with Roslyn in the E2E suite).
+
+### Tests
+- New `tests/SalesforceCore.E2E` (18 tests): fake REST/OAuth/Bulk 2.0/Composite server, real `AddSalesforceCore`
+  client-credentials pipeline, Roslyn compilation of generated models. 963 unit tests unchanged in count; one test that
+  asserted the split-allOrNone behaviour was corrected.
+
 ## 2.2.1 — 2026-11-02
 
 Revalidation of the 2.2.0 LINQ release. No API changes. Queries that silently returned wrong data now either return

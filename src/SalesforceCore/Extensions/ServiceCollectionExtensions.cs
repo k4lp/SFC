@@ -245,14 +245,27 @@ public static class ServiceCollectionExtensions
     internal static void ConfigureResilience(HttpStandardResilienceOptions resilienceOptions, SalesforceOptions options)
     {
         // 401 is excluded on purpose: it needs a token refresh, which SalesforceClient performs.
-        resilienceOptions.Retry.ShouldHandle = args => ValueTask.FromResult(
-            args.Outcome.Result?.StatusCode is HttpStatusCode.InternalServerError
-                or HttpStatusCode.BadGateway
-                or HttpStatusCode.ServiceUnavailable
-                or HttpStatusCode.GatewayTimeout
-                or HttpStatusCode.RequestTimeout
-                or HttpStatusCode.TooManyRequests
-            || args.Outcome.Exception is HttpRequestException);
+        // Non-idempotent requests (POST/PATCH: create, composite, bulk job creation, Apex) are only retried on 429,
+        // where Salesforce rejected the call before processing it. A 5xx, timeout or dropped connection on a POST may
+        // arrive after the record was committed, and replaying it creates duplicates.
+        resilienceOptions.Retry.ShouldHandle = args =>
+        {
+            var method = args.Outcome.Result?.RequestMessage?.Method ?? args.Context.GetRequestMessage()?.Method;
+            var status = args.Outcome.Result?.StatusCode;
+            if (method == HttpMethod.Post || method == HttpMethod.Patch)
+            {
+                return ValueTask.FromResult(status == HttpStatusCode.TooManyRequests);
+            }
+
+            return ValueTask.FromResult(
+                status is HttpStatusCode.InternalServerError
+                    or HttpStatusCode.BadGateway
+                    or HttpStatusCode.ServiceUnavailable
+                    or HttpStatusCode.GatewayTimeout
+                    or HttpStatusCode.RequestTimeout
+                    or HttpStatusCode.TooManyRequests
+                || args.Outcome.Exception is HttpRequestException);
+        };
         resilienceOptions.Retry.MaxRetryAttempts = Math.Max(0, options.MaxRetries) == 0 ? 1 : options.MaxRetries;
         if (options.MaxRetries == 0)
         {

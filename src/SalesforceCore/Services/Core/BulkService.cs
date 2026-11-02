@@ -1,3 +1,5 @@
+using SalesforceCore.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Globalization;
@@ -389,8 +391,13 @@ public class BulkService : IBulkService
                     throw new SalesforceException($"Bulk query failed: {jobInfo.ErrorMessage}");
                 }
 
-                // Get all results
-                return await GetQueryResultsAsync(job.Id, cancellationToken: cancellationToken);
+                if (jobInfo.State == BulkJobState.Aborted)
+                {
+                    throw new SalesforceException($"Bulk query job {job.Id} was aborted.");
+                }
+
+                // Get all results: Bulk 2.0 pages query results with the Sforce-Locator header ("null" on the last page).
+                return await GetAllQueryResultPagesAsync(job.Id, cancellationToken);
             }
 
             if (DateTime.UtcNow - startTime > timeout)
@@ -468,6 +475,15 @@ public class BulkService : IBulkService
             // Wait for completion
             job = await WaitForCompletionAsync(job.Id, pollInterval, timeout, cancellationToken);
 
+            if (job.State is BulkJobState.Failed or BulkJobState.Aborted)
+            {
+                // A Failed job (e.g. "InvalidBatch : Field name not found") used to come back as an empty, "successful"
+                // result with zero successes and zero failures.
+                throw new SalesforceException(
+                    $"Bulk {operation} job {job.Id} on {objectName} ended in state {job.State}: {job.ErrorMessage} " +
+                    $"(processed {job.NumberRecordsProcessed}, failed {job.NumberRecordsFailed}).");
+            }
+
             // Get results
             var results = new BulkJobResults { Job = job };
 
@@ -536,13 +552,32 @@ public class BulkService : IBulkService
             foreach (var field in fields)
             {
                 record.TryGetValue(field, out var value);
-                csv.WriteField(value?.ToString() ?? "");
+                csv.WriteField(FormatCsvValue(value));
             }
             csv.NextRecord();
         }
 
         return writer.ToString();
     }
+
+    /// <summary>
+    /// Formats a value the way Bulk API 2.0 expects it, independent of the thread culture: invariant numbers
+    /// (<c>1.5</c>, not <c>1,5</c>), ISO-8601 dates/datetimes in UTC, lower-case booleans.
+    /// </summary>
+    internal static string FormatCsvValue(object? value) => value switch
+    {
+        null => string.Empty,
+        string s => s,
+        bool b => b ? "true" : "false",
+        DateTime dt => (dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : dt).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+        DateTimeOffset dto => dto.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+        DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        TimeOnly t => t.ToString("HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+        double dbl => ((decimal)dbl).ToString(CultureInfo.InvariantCulture),
+        float fl => ((decimal)fl).ToString(CultureInfo.InvariantCulture),
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? string.Empty
+    };
 
     /// <summary>
     /// Parses Salesforce Bulk API result CSV using CsvHelper for RFC 4180 compliance.
@@ -561,8 +596,7 @@ public class BulkService : IBulkService
         {
             HasHeaderRecord = true,
             MissingFieldFound = null, // Ignore missing fields
-            BadDataFound = null, // Ignore bad data gracefully
-            TrimOptions = TrimOptions.Trim
+            BadDataFound = null // Ignore bad data gracefully. Values are not trimmed: leading/trailing spaces are data.
         };
 
         using var reader = new StringReader(csv);
@@ -635,6 +669,47 @@ public class BulkService : IBulkService
             return null;
         }
         // Other exceptions (OutOfMemory, etc.) should propagate for proper error handling
+    }
+
+    private async Task<string> GetAllQueryResultPagesAsync(string jobId, CancellationToken cancellationToken)
+    {
+        var sb = new StringBuilder();
+        string? locator = null;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            var endpoint = $"{JobPath(SalesforceConstants.Paths.BulkQuery, jobId)}/results" +
+                           (locator == null ? string.Empty : $"?locator={Uri.EscapeDataString(locator)}");
+            var response = await _client.SendAsync(
+                new SalesforceRequest(HttpMethod.Get, endpoint) { Accept = SalesforceConstants.Headers.ContentTypeCsv },
+                cancellationToken);
+
+            var page = response.Content ?? string.Empty;
+            if (sb.Length == 0)
+            {
+                sb.Append(page);
+            }
+            else
+            {
+                // Every page repeats the header row; keep only the first one.
+                var headerEnd = IndexOfFirstRecordBreak(page);
+                if (headerEnd >= 0) sb.Append(page, headerEnd, page.Length - headerEnd);
+            }
+
+            locator = response.Headers.TryGetValue("Sforce-Locator", out var values) ? values.FirstOrDefault() : null;
+            if (string.IsNullOrEmpty(locator) || locator == "null") return sb.ToString();
+            if (!seen.Add(locator))
+            {
+                throw new SalesforceException($"Bulk query job {jobId} returned a repeating Sforce-Locator '{locator}'.");
+            }
+        }
+    }
+
+    /// <summary>Index just past the header row's line break (header names never contain quoted newlines).</summary>
+    private static int IndexOfFirstRecordBreak(string csv)
+    {
+        var lf = csv.IndexOf('\n');
+        return lf < 0 ? -1 : lf + 1;
     }
 
     private async Task<string> GetCsvResultsAsync(string endpoint, CancellationToken cancellationToken)

@@ -1,4 +1,18 @@
-# Migrating to SalesforceCore 2.2
+# Migrating to SalesforceCore 2.2 / 2.3
+
+<a id="230"></a>
+## 2.3.0
+
+No API removals. Behaviour changes:
+
+| Change | What to do |
+|---|---|
+| POST/PATCH no longer retried on 5xx/408/connection errors (still on 429) | If you relied on automatic replay of creates, add your own idempotency (external-ID upsert) and retry. |
+| Composite `*RecordsAsync(allOrNone: true)` with more than 25 records throws | Split into ≤25-record calls yourself, or pass `allOrNone: false`. |
+| Bulk jobs ending `Failed`/`Aborted` throw `SalesforceException` | Catch it where you previously checked for an empty result. |
+| Bulk-path `BatchRecordError.Index` is the input index (or `-1`) | Code that subtracted 1 from it should stop. |
+| `FileService` enforces `MaxFileUploadSize` | Raise the option if you upload larger files. |
+| Generated models: colliding property names get a `_1` suffix; `Id` gets `= default!` | Regenerate; the API name stays in `[SalesforceField]`. |
 
 <a id="221"></a>
 ## 2.2.1

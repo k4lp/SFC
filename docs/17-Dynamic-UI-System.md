@@ -279,8 +279,8 @@ User Request → Controller/View
 ### 1. Install Packages
 
 ```bash
-dotnet add package SalesforceCore --version 2.2.1   # from a GitHub Release local feed; see 00-Setup-Guide.md for the required nuget.config
-dotnet add package SalesforceCore.AspNetCore --version 2.2.1
+dotnet add package SalesforceCore --version 2.3.0   # from a GitHub Release local feed; see 00-Setup-Guide.md for the required nuget.config
+dotnet add package SalesforceCore.AspNetCore --version 2.3.0
 ```
 
 ### 2. Configure Services

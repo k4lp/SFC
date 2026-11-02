@@ -157,6 +157,7 @@ public class CompositeService : ICompositeService
         var results = new List<CompositeOperationResult>();
 
         // Process in batches
+        EnsureAllOrNoneFits(allOrNone, recordList.Count);
         foreach (var batch in recordList.Chunk(SalesforceConstants.Composite.MaxSubRequestsPerBatch))
         {
             var request = new CompositeRequest
@@ -207,6 +208,7 @@ public class CompositeService : ICompositeService
 
         var results = new List<CompositeOperationResult>();
 
+        EnsureAllOrNoneFits(allOrNone, recordList.Count);
         foreach (var batch in recordList.Chunk(SalesforceConstants.Composite.MaxSubRequestsPerBatch))
         {
             var request = new CompositeRequest
@@ -268,6 +270,7 @@ public class CompositeService : ICompositeService
 
         var results = new List<CompositeOperationResult>();
 
+        EnsureAllOrNoneFits(allOrNone, idList.Count);
         foreach (var batch in idList.Chunk(SalesforceConstants.Composite.MaxSubRequestsPerBatch))
         {
             var request = new CompositeRequest
@@ -321,6 +324,7 @@ public class CompositeService : ICompositeService
 
         var results = new List<CompositeOperationResult>();
 
+        EnsureAllOrNoneFits(allOrNone, recordList.Count);
         foreach (var batch in recordList.Chunk(SalesforceConstants.Composite.MaxSubRequestsPerBatch))
         {
             var request = new CompositeRequest
@@ -511,4 +515,18 @@ public class CompositeService : ICompositeService
     }
 
     #endregion
+
+    /// <summary>
+    /// allOrNone is atomic per composite call (25 sub-requests). Splitting a larger set into several calls would let
+    /// earlier calls commit while a later one rolls back, which silently breaks the all-or-none promise.
+    /// </summary>
+    private static void EnsureAllOrNoneFits(bool allOrNone, int count)
+    {
+        if (allOrNone && count > SalesforceConstants.Composite.MaxSubRequestsPerBatch)
+        {
+            throw new ArgumentException(
+                $"allOrNone: true needs at most {SalesforceConstants.Composite.MaxSubRequestsPerBatch} records per call ({count} given): " +
+                "Salesforce can only roll back one composite request. Split the work yourself, or use allOrNone: false.");
+        }
+    }
 }

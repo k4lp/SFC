@@ -21,10 +21,24 @@ public class FileService : IFileService
     /// <summary>
     /// Maximum file size for upload (25MB Salesforce limit).
     /// </summary>
-    private const long MaxFileSize = 25 * 1024 * 1024;
+    private readonly long MaxFileSize = SalesforceConstants.Defaults.MaxFileUploadSize;
 
     /// <summary>
     /// Creates a new FileService.
+    /// </summary>
+    public FileService(
+        ISalesforceClient client,
+        IDataService dataService,
+        ILogger<FileService> logger,
+        Microsoft.Extensions.Options.IOptions<SalesforceCore.Models.Configuration.SalesforceOptions> options)
+        : this(client, dataService, logger)
+    {
+        // SalesforceOptions.MaxFileUploadSize was documented as the upload limit but FileService ignored it.
+        if (options?.Value.MaxFileUploadSize > 0) MaxFileSize = options.Value.MaxFileUploadSize;
+    }
+
+    /// <summary>
+    /// Creates a new FileService with the default upload limit.
     /// </summary>
     public FileService(
         ISalesforceClient client,
