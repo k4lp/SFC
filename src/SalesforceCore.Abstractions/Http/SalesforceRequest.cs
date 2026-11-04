@@ -53,6 +53,13 @@ public sealed class SalesforceRequest
     /// Set to false to inspect error responses yourself.</summary>
     public bool ThrowOnError { get; init; } = true;
 
+    /// <summary>
+    /// When true the body is read from the response stream instead of being buffered by HttpClient, so
+    /// <c>SalesforceOptions.MaxResponseContentBufferSize</c> (default 10 MB, a guard for JSON responses) does not apply.
+    /// Used for Bulk API CSV results, whose pages and result files routinely exceed 10 MB. Default false.
+    /// </summary>
+    public bool UnboundedResponse { get; init; }
+
     /// <summary>GET request.</summary>
     public static SalesforceRequest Get(string path) => new(HttpMethod.Get, path);
     /// <summary>DELETE request.</summary>

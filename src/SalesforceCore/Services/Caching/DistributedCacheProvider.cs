@@ -21,7 +21,7 @@ namespace SalesforceCore.Services.Caching;
 /// </para>
 /// <para>
 /// Thread-safety strategy:
-/// - Local striped locking prevents cache stampede within each process
+/// - Local per-key locking prevents cache stampede within each process
 /// - Optional distributed lock (via <see cref="IDistributedLockProvider"/>) prevents stampede across processes
 /// - Graceful degradation if a distributed lock provider is unavailable or a lock cannot be acquired
 /// </para>
@@ -34,12 +34,8 @@ public class DistributedCacheProvider : ICacheProvider
     private readonly string _keyPrefix;
     private readonly IDistributedLockProvider? _distributedLockProvider;
 
-    /// <summary>
-    /// Striped lock array for local cache stampede prevention.
-    /// </summary>
-    private const int LockStripesCount = 32;
-    private const int LockStripesMask = LockStripesCount - 1;
-    private readonly SemaphoreSlim[] _lockStripes;
+    /// <summary>Process-wide per-key locks for stampede prevention (see <see cref="KeyedAsyncLock"/>).</summary>
+    internal static readonly KeyedAsyncLock KeyLocks = new();
 
     /// <summary>
     /// Distributed lock settings.
@@ -66,23 +62,6 @@ public class DistributedCacheProvider : ICacheProvider
         _logger = logger;
         _keyPrefix = _options.CacheKeyPrefix;
         _distributedLockProvider = distributedLockProvider;
-
-        // Pre-allocate striped locks
-        _lockStripes = new SemaphoreSlim[LockStripesCount];
-        for (var i = 0; i < LockStripesCount; i++)
-        {
-            _lockStripes[i] = new SemaphoreSlim(1, 1);
-        }
-    }
-
-    /// <summary>
-    /// Gets the lock stripe for a given key.
-    /// </summary>
-    private SemaphoreSlim GetLockForKey(string key)
-    {
-        var hash = (uint)key.GetHashCode();
-        var index = (int)(hash & LockStripesMask);
-        return _lockStripes[index];
     }
 
     /// <inheritdoc/>
@@ -170,7 +149,7 @@ public class DistributedCacheProvider : ICacheProvider
     /// Uses a two-level locking strategy for cache stampede prevention:
     /// </para>
     /// <list type="number">
-    /// <item>Local striped lock - prevents multiple threads in same process from invoking factory</item>
+    /// <item>Local per-key lock - prevents multiple threads in same process from invoking factory</item>
     /// <item>Distributed lock - prevents multiple processes/servers from invoking factory simultaneously</item>
     /// </list>
     /// <para>
@@ -197,11 +176,8 @@ public class DistributedCacheProvider : ICacheProvider
             return cachedValue.Value;
         }
 
-        // Cache miss - acquire local striped lock first
-        var stripeLock = GetLockForKey(fullKey);
-
-        await stripeLock.WaitAsync(cancellationToken);
-        try
+        // Cache miss - acquire the local per-key lock first
+        using (await KeyLocks.AcquireAsync(fullKey, cancellationToken).ConfigureAwait(false))
         {
             // Double-check cache after acquiring local lock
             cachedValue = await TryGetFromCacheAsync<T>(fullKey, cancellationToken);
@@ -250,10 +226,6 @@ public class DistributedCacheProvider : ICacheProvider
             }
 
             return value;
-        }
-        finally
-        {
-            stripeLock.Release();
         }
     }
 

@@ -209,7 +209,7 @@ The `Salesforce` section contains all core library settings.
 |--------|------|---------|-------------|
 | `HttpTimeout` | `TimeSpan` | `00:00:30` | Individual HTTP request timeout. |
 | `TotalRequestTimeout` | `TimeSpan` | `00:01:00` | End-to-end request timeout including retries. |
-| `MaxResponseContentBufferSize` | `long` | `10485760` | Max response buffer (10 MB). |
+| `MaxResponseContentBufferSize` | `long` | `10485760` | Max buffered response (10 MB) for JSON responses. Bulk CSV results, file downloads and requests with `SalesforceRequest.UnboundedResponse = true` are streamed and not limited (2.5.0). |
 | `EnableDebugLogging` | `bool` | `false` | Log all HTTP requests/responses. |
 
 ```json

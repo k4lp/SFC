@@ -42,12 +42,26 @@ public class AggregateResult
         if (value is T typedValue)
             return typedValue;
 
+        // Convert.ChangeType cannot target Nullable<T>; convert to the underlying type (int? <- decimal).
+        var target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+        if (target.IsEnum)
+        {
+            // Picklist values map through [SalesforceValue] like entity materialisation does. Before 2.5 this used
+            // Enum.Parse, which failed on "Closed Won" and silently returned default(T) (the first member), so
+            // DistinctAsync/GroupBy/Min/Max over an enum field reported the wrong value.
+            try
+            {
+                return (T)SalesforceMapper.ParseEnumValue(value.ToString()!, target);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidCastException(
+                    $"Aggregate value '{value}' for '{key}' does not match any member of enum {target.Name} (by name or [SalesforceValue]).", ex);
+            }
+        }
+
         try
         {
-            // Convert.ChangeType cannot target Nullable<T>; convert to the underlying type (int? <- decimal).
-            var target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
-            if (target.IsEnum)
-                return (T)Enum.Parse(target, value.ToString()!, ignoreCase: true);
             if (target == typeof(DateTime) && value is string dts)
                 return (T)(object)DateTime.Parse(dts, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
             if (target == typeof(DateOnly) && value is string ds)

@@ -90,6 +90,12 @@ var resultsCsv = await bulkService.GetQueryResultsAsync(job.Id);
 - `ICompositeService.*RecordsAsync(allOrNone: true)` accepts at most 25 records (one composite call is the unit Salesforce
   can roll back) and throws `ArgumentException` above that. Without `allOrNone` the records are still chunked by 25.
 - Job timeouts use `BulkJobTimeout`; polling uses `BulkPollInterval`.
+- Since 2.5.0: result CSVs (query pages, success/failure files) are streamed, so results over 10 MB work; cancelling a
+  running ingest or query job aborts it on Salesforce (with its own 30 s timeout) and throws `OperationCanceledException`
+  (`WaitForCompletionAsync` included); a job that already completed is never aborted. Enum values are written as their
+  `[SalesforceValue]`.
+- `IDataService.Batch*Async` below `bulkThreshold` uses sObject Collections in calls of at most 200 records/ids
+  (2.5.0); failure indexes refer to your input list.
 
 ## Composite API (`ICompositeService`)
 Use for small/medium batches or when you need partial success handling without bulk CSV.

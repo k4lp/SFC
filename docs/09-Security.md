@@ -478,19 +478,10 @@ public class SalesforceOptions
 
 ### Cache Stampede Prevention
 
-Striped locking prevents multiple threads from calling the factory simultaneously:
-
-```csharp
-// 32 lock stripes for fine-grained locking
-private readonly SemaphoreSlim[] _lockStripes = new SemaphoreSlim[32];
-
-private SemaphoreSlim GetLockForKey(string key)
-{
-    var hash = (uint)key.GetHashCode();
-    var index = (int)(hash & 0x1F);  // Mask for 32 stripes
-    return _lockStripes[index];
-}
-```
+A process-wide lock per cache key (`KeyedAsyncLock`, since 2.5.0) prevents multiple threads and request scopes from
+calling the factory simultaneously. Only callers of the same key wait for each other, so a factory may call
+`GetOrCreateAsync` for other keys (layout and permission descriptors load describes this way). The 2.x striped locks
+(32 semaphores chosen by `key.GetHashCode()`) could deadlock on such nested calls and were per scope.
 
 ### Distributed Cache Security
 

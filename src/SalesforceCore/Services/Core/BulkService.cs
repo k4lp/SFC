@@ -314,9 +314,10 @@ public class BulkService : IBulkService
             _logger.LogDebug("Bulk job {JobId} state: {State}, waiting...", jobId, job.State);
             await Task.Delay(pollInterval.Value, cancellationToken);
 
-        } while (!cancellationToken.IsCancellationRequested);
-
-        return job;
+            // Cancellation is an exception, never a result: 2.4.0 left the loop and returned the still-running job,
+            // which the Insert/Update/Upsert/Delete helpers then reported as an empty successful result.
+            cancellationToken.ThrowIfCancellationRequested();
+        } while (true);
     }
 
     #endregion
@@ -379,7 +380,9 @@ public class BulkService : IBulkService
         timeout ??= _options.BulkJobTimeout;
 
         var startTime = DateTime.UtcNow;
-
+        var finished = false;
+        try
+        {
         while (true)
         {
             var jobInfo = await GetQueryJobInfoAsync(job.Id, cancellationToken);
@@ -396,17 +399,26 @@ public class BulkService : IBulkService
                     throw new SalesforceException($"Bulk query job {job.Id} was aborted.");
                 }
 
+                finished = true;
                 // Get all results: Bulk 2.0 pages query results with the Sforce-Locator header ("null" on the last page).
                 return await GetAllQueryResultPagesAsync(job.Id, cancellationToken);
             }
 
             if (DateTime.UtcNow - startTime > timeout)
             {
-                await AbortQueryJobAsync(job.Id, cancellationToken);
+                finished = true;
+                await TryAbortAsync(ct => AbortQueryJobAsync(job.Id, ct), job.Id).ConfigureAwait(false);
                 throw new SalesforceException($"Bulk query timed out after {timeout}");
             }
 
             await Task.Delay(pollInterval.Value, cancellationToken);
+        }
+        }
+        catch (OperationCanceledException) when (!finished)
+        {
+            // Caller cancelled while the job was still running: stop it server-side instead of leaving it to run.
+            await TryAbortAsync(ct => AbortQueryJobAsync(job.Id, ct), job.Id).ConfigureAwait(false);
+            throw;
         }
     }
 
@@ -504,18 +516,27 @@ public class BulkService : IBulkService
 
             return results;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!job.IsComplete)
         {
+            // Not finished (upload failed, caller cancelled, poll timed out): abort so the job does not stay Open or
+            // keep processing. The abort uses its own short timeout, not the caller's token: after a cancellation
+            // that token is already cancelled and the abort was never sent (2.4.0 and earlier left the job running).
             _logger.LogError(ex, "Bulk operation failed, aborting job {JobId}", job.Id);
-            try
-            {
-                await AbortJobAsync(job.Id, cancellationToken);
-            }
-            catch (Exception abortEx)
-            {
-                _logger.LogDebug(abortEx, "Failed to abort bulk job {JobId} during error cleanup", job.Id);
-            }
+            await TryAbortAsync(ct => AbortJobAsync(job.Id, ct), job.Id).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private async Task TryAbortAsync(Func<CancellationToken, Task> abort, string jobId)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await abort(cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception abortEx)
+        {
+            _logger.LogDebug(abortEx, "Failed to abort bulk job {JobId} during error cleanup", jobId);
         }
     }
 
@@ -577,11 +598,26 @@ public class BulkService : IBulkService
         DateTimeOffset dto => dto.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
         DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         TimeOnly t => t.ToString("HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        double dbl => ((decimal)dbl).ToString(CultureInfo.InvariantCulture),
-        float fl => ((decimal)fl).ToString(CultureInfo.InvariantCulture),
+        double dbl => FormatFloatingPoint(dbl),
+        float fl => FormatFloatingPoint(fl),
+        Enum e => Mapping.SalesforceMapper.GetEnumSalesforceValue(e),
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? string.Empty
     };
+
+    /// <summary>
+    /// Positional digits (no exponent). NaN, infinity and magnitudes beyond decimal range cannot be stored in a
+    /// Salesforce number field; 2.4.0 and earlier threw a bare OverflowException from the cast.
+    /// </summary>
+    private static string FormatFloatingPoint(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || Math.Abs(value) > (double)decimal.MaxValue)
+        {
+            throw new ArgumentException($"The number {value.ToString(CultureInfo.InvariantCulture)} cannot be written to a Bulk API CSV.");
+        }
+
+        return ((decimal)value).ToString(CultureInfo.InvariantCulture);
+    }
 
     /// <summary>
     /// Parses Salesforce Bulk API result CSV using CsvHelper for RFC 4180 compliance.
@@ -685,7 +721,7 @@ public class BulkService : IBulkService
             var endpoint = $"{JobPath(SalesforceConstants.Paths.BulkQuery, jobId)}/results" +
                            (locator == null ? string.Empty : $"?locator={Uri.EscapeDataString(locator)}");
             var response = await _client.SendAsync(
-                new SalesforceRequest(HttpMethod.Get, endpoint) { Accept = SalesforceConstants.Headers.ContentTypeCsv },
+                new SalesforceRequest(HttpMethod.Get, endpoint) { Accept = SalesforceConstants.Headers.ContentTypeCsv, UnboundedResponse = true },
                 cancellationToken);
 
             var page = response.Content ?? string.Empty;

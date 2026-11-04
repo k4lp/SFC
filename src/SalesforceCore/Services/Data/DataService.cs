@@ -936,24 +936,48 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
         _logger.LogDebug("Using sObject Collections to create {Count} {Object} records", records.Count, sObject);
 
 
-        var payload = new
+        var filtered = FilterRecordBatch(sObject, records, operation: "composite create", dropNullValues: true);
+        return await ExecuteCollectionsInChunksAsync(filtered, async chunk =>
         {
-            allOrNone = false,
-            records = FilterRecordBatch(
-                sObject,
-                records,
-                operation: "composite create",
-                dropNullValues: true)
-                .Select(filtered =>
-                {
-                    filtered["attributes"] = new Dictionary<string, string> { { "type", sObject } };
-                    return filtered;
-                }).ToList()
-        };
-
-        var response = await _client.PostAsync<JsonArray>("/composite/sobjects", payload, cancellationToken);
-        return ParseCompositeResponse(response, records.Count);
+            var payload = new { allOrNone = false, records = WithAttributes(chunk, sObject) };
+            return await _client.PostAsync<JsonArray>("/composite/sobjects", payload, cancellationToken);
+        });
     }
+
+    /// <summary>
+    /// sObject Collections accept at most 200 records (or ids) per call. <c>bulkThreshold</c> is caller-controlled, so
+    /// a threshold above 200 sent 201+ records in one call and Salesforce rejected the whole batch (2.4.0 and earlier).
+    /// Chunks of 200 with <c>allOrNone=false</c> are independent; failure indexes stay relative to the caller's input.
+    /// </summary>
+    private static async Task<BatchResult> ExecuteCollectionsInChunksAsync<TItem>(
+        IReadOnlyList<TItem> items,
+        Func<IReadOnlyList<TItem>, Task<JsonArray>> send)
+    {
+        var result = new BatchResult { UsedBulkApi = false };
+        for (var offset = 0; offset < items.Count; offset += SObjectCollectionsLimit)
+        {
+            var chunk = items.Skip(offset).Take(SObjectCollectionsLimit).ToList();
+            var part = ParseCompositeResponse(await send(chunk).ConfigureAwait(false), chunk.Count);
+            result.SuccessCount += part.SuccessCount;
+            result.FailureCount += part.FailureCount;
+            result.SuccessfulIds.AddRange(part.SuccessfulIds);
+            foreach (var failure in part.FailedRecords)
+            {
+                failure.Index += offset;
+                result.FailedRecords.Add(failure);
+            }
+        }
+        return result;
+    }
+
+    private const int SObjectCollectionsLimit = 200;
+
+    private static List<Dictionary<string, object?>> WithAttributes(IEnumerable<Dictionary<string, object?>> records, string sObject)
+        => records.Select(r =>
+        {
+            r["attributes"] = new Dictionary<string, string> { { "type", sObject } };
+            return r;
+        }).ToList();
 
     private async Task<BatchResult> ExecuteCompositeUpdateAsync(
         string sObject,
@@ -963,23 +987,12 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
         _logger.LogDebug("Using sObject Collections to update {Count} {Object} records", records.Count, sObject);
 
 
-        var payload = new
+        var filtered = FilterRecordBatch(sObject, records, operation: "composite update", dropNullValues: false);
+        return await ExecuteCollectionsInChunksAsync(filtered, async chunk =>
         {
-            allOrNone = false,
-            records = FilterRecordBatch(
-                sObject,
-                records,
-                operation: "composite update",
-                dropNullValues: false)
-                .Select(filtered =>
-                {
-                    filtered["attributes"] = new Dictionary<string, string> { { "type", sObject } };
-                    return filtered;
-                }).ToList()
-        };
-
-        var response = await _client.PatchAsync<JsonArray>("/composite/sobjects", payload, cancellationToken);
-        return ParseCompositeResponse(response, records.Count);
+            var payload = new { allOrNone = false, records = WithAttributes(chunk, sObject) };
+            return await _client.PatchAsync<JsonArray>("/composite/sobjects", payload, cancellationToken);
+        });
     }
 
     private async Task<BatchResult> ExecuteCompositeUpsertAsync(
@@ -1008,7 +1021,8 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
                 continue;
             }
 
-            var extId = extIdValue.ToString()!;
+            // Invariant: a numeric external id 1234.5 was sent as "1234,5" under de-DE (2.4.0 and earlier).
+            var extId = Core.BulkService.FormatCsvValue(extIdValue);
             var refId = $"ref{index}";
             recordIndices[refId] = index;
 
@@ -1100,9 +1114,10 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Entire chunk failed (e.g. network)
+                // Entire chunk failed (e.g. network). Cancellation propagates: 2.4.0 and earlier recorded it as a
+                // per-record failure and kept sending the remaining chunks with the cancelled token.
                 _logger.LogError(ex, "Composite upsert chunk failed");
                 foreach (var req in chunk)
                 {
@@ -1137,12 +1152,12 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
     {
         _logger.LogDebug("Using sObject Collections to delete {Count} {Object} records", ids.Count, sObject);
 
-        // Salesforce composite delete endpoint
-        var idsParam = string.Join(",", ids);
-        var endpoint = $"/composite/sobjects?ids={idsParam}&allOrNone=false";
-
-        var response = await _client.DeleteAsync<JsonArray>(endpoint, cancellationToken);
-        return ParseCompositeResponse(response, ids.Count);
+        // Salesforce composite delete endpoint (max 200 ids per call)
+        return await ExecuteCollectionsInChunksAsync(ids, async chunk =>
+        {
+            var endpoint = $"/composite/sobjects?ids={string.Join(",", chunk.Select(Uri.EscapeDataString))}&allOrNone=false";
+            return await _client.DeleteAsync<JsonArray>(endpoint, cancellationToken);
+        });
     }
 
     private static BatchResult ParseCompositeResponse(JsonArray response, int totalCount)
