@@ -25,6 +25,9 @@ public sealed class FakeSalesforce : IAsyncDisposable
     public int TokenRequests;
     public TimeSpan TokenDelay = TimeSpan.Zero;
     public ConcurrentQueue<string> Requests { get; } = new();
+    /// <summary>Sforce-* request headers per request ("METHOD path" -> header -> value).</summary>
+    public ConcurrentQueue<(string Line, Dictionary<string, string> Headers)> SforceHeaders { get; } = new();
+    public JsonObject? LastIngestJobRequest;
     /// <summary>Status codes returned (once each, in order) before a POST to /sobjects is processed normally.</summary>
     public ConcurrentQueue<int> SObjectPostFailures { get; } = new();
     public int SObjectPostsProcessed;
@@ -101,6 +104,9 @@ public sealed class FakeSalesforce : IAsyncDisposable
         app.Use(async (ctx, next) =>
         {
             Requests.Enqueue($"{ctx.Request.Method} {ctx.Request.Path}{ctx.Request.QueryString}");
+            SforceHeaders.Enqueue(($"{ctx.Request.Method} {ctx.Request.Path}", ctx.Request.Headers
+                .Where(h => h.Key.StartsWith("Sforce-", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(h => h.Key, h => h.Value.ToString(), StringComparer.OrdinalIgnoreCase)));
             LastAcceptEncoding = ctx.Request.Headers.AcceptEncoding.ToString();
             if (GzipResponses && LastAcceptEncoding.Contains("gzip") && !ctx.Request.Path.StartsWithSegments("/services/oauth2"))
             {
@@ -181,6 +187,7 @@ public sealed class FakeSalesforce : IAsyncDisposable
         app.MapPost(v + "/jobs/ingest", async ctx =>
         {
             var req = (JsonObject)(await JsonNode.ParseAsync(ctx.Request.Body))!;
+            LastIngestJobRequest = (JsonObject)req.DeepClone();
             var id = "750" + jobs.Count.ToString("D12");
             var job = new JsonObject { ["id"] = id, ["state"] = "Open", ["object"] = req["object"]?.GetValue<string>(), ["operation"] = req["operation"]?.GetValue<string>(), ["contentType"] = "CSV" };
             jobs[id] = job;

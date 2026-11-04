@@ -1,3 +1,4 @@
+using SalesforceCore.Models.Data;
 using System.Collections.Concurrent;
 using System.Collections;
 using System.Globalization;
@@ -405,33 +406,13 @@ public static class SalesforceMapper
 
         return value switch
         {
-            DateTime dt => FormatDateTimeUtc(dt),
-            DateTimeOffset dto => FormatDateTimeOffsetUtc(dto),
-            DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            TimeOnly t => t.ToString("HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-            bool b => b,
-            Enum e => GetEnumSalesforceValue(e),
-            decimal d => d,
-            double d => d,
-            float f => f,
-            int i => i,
-            long l => l,
-            string s => s,
-            _ => value.ToString()
+            // 2.6.0: string[]/List<string>/[Flags] enums are multipicklists ("A;B"); they used to be written as
+            // "System.String[]" (ToString fallback) or "A, B" (Enum.ToString).
+            Enum e when !SalesforceWireFormat.IsFlags(e.GetType()) => GetEnumSalesforceValue(e),
+            bool or decimal or double or float or int or long or string => value,
+            SalesforceLocation or SalesforceAddress => null, // compound fields are read-only; write the component fields
+            _ => SalesforceWireFormat.RecordValue(value)
         };
-    }
-
-    private static string FormatDateTimeUtc(DateTime dateTime)
-    {
-        var utc = dateTime.Kind switch
-        {
-            DateTimeKind.Utc => dateTime,
-            DateTimeKind.Local => dateTime.ToUniversalTime(),
-            DateTimeKind.Unspecified => DateTime.SpecifyKind(dateTime, DateTimeKind.Utc),
-            _ => dateTime
-        };
-
-        return utc.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
     }
 
     private static string FormatDateTimeOffsetUtc(DateTimeOffset dateTimeOffset)
@@ -569,6 +550,22 @@ public static class SalesforceMapper
             if (underlyingType == typeof(string))
                 return token.ToString();
 
+            // multipicklist "A;B" -> string[] / List<string> / IEnumerable<string> / [Flags] enum
+            if (token is JsonValue && (underlyingType == typeof(string[]) || underlyingType == typeof(List<string>) ||
+                                       underlyingType == typeof(IEnumerable<string>) || underlyingType == typeof(IReadOnlyList<string>) ||
+                                       underlyingType == typeof(IList<string>) || underlyingType == typeof(ICollection<string>)))
+            {
+                var parts = SalesforceWireFormat.SplitMultiPicklist(token.ToString());
+                return underlyingType == typeof(string[]) ? parts : parts.ToList();
+            }
+
+            if (underlyingType.IsEnum && SalesforceWireFormat.IsFlags(underlyingType))
+                return SalesforceWireFormat.ParseFlags(token.ToString(), underlyingType);
+
+            // address / location compound fields (camelCase JSON objects)
+            if (token is JsonObject && (underlyingType == typeof(SalesforceLocation) || underlyingType == typeof(SalesforceAddress)))
+                return token.Deserialize(underlyingType, Services.Core.SalesforceClient.ReadOptions);
+
             if (underlyingType == typeof(bool))
                 return token.GetValue<bool>();
 
@@ -603,6 +600,11 @@ public static class SalesforceMapper
                 if (string.IsNullOrWhiteSpace(str) || str.Equals("null", StringComparison.OrdinalIgnoreCase))
                 {
                     return isNullable ? null : throw new InvalidOperationException("Salesforce returned an empty DateTime value for a non-nullable target type.");
+                }
+
+                if (SalesforceWireFormat.TryParseDateTime(str, out var sfDto))
+                {
+                    return sfDto.UtcDateTime;
                 }
 
                 // Prefer DateTimeOffset parsing to correctly handle offsets, then normalize to UTC DateTime.
@@ -699,7 +701,7 @@ public static class SalesforceMapper
                     return isNullable ? null : throw new InvalidOperationException("Salesforce returned an empty TimeOnly value for a non-nullable target type.");
                 }
 
-                if (TimeOnly.TryParse(str, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var timeOnly))
+                if (SalesforceWireFormat.TryParseTime(str, out var timeOnly))
                 {
                     return timeOnly;
                 }

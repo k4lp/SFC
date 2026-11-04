@@ -242,6 +242,8 @@ The `Salesforce` section contains all core library settings.
 | `MaxRetries` | `int` | `3` | Maximum retry attempts for failed requests. GET/PUT/DELETE retry on 408/429/5xx and connection errors; POST/PATCH (create, composite, bulk job creation, Apex) retry **only on 429**, because a 5xx or dropped connection may arrive after Salesforce committed the change (2.3.0). |
 | `BulkNullsAsNA` | `bool` | `true` | Bulk 2.0 update/upsert: a key present with a `null` value is sent as `#N/A` (clears the field, like REST/composite). Keys absent from a record are sent empty (unchanged). `false` restores the 2.3 behaviour (2.4.0). |
 | `EnableResponseCompression` | `bool` | `false` | Opt-in: send `Accept-Encoding: gzip` and decompress gzip responses in the client pipeline (2.4.0). |
+| `QueryBatchSize` | `int?` | `null` | Sends `Sforce-Query-Options: batchSize=N` on query/queryAll/queryMore pages; 200–2000, a hint Salesforce may lower. Null sends nothing (Salesforce default 2000). (2.6.0) |
+| `ClientName` | `string?` | `null` | Sends `Sforce-Call-Options: client=NAME` on every REST call (visible in API usage/Event Monitoring). No commas or line breaks. A header set on a request wins. (2.6.0) |
 | `RetryBaseDelay` | `TimeSpan` | `00:00:01` | Base delay for exponential backoff (delays: 1s, 2s, 4s...). |
 | `CircuitBreakerSamplingDuration` | `TimeSpan` | `00:00:30` | Circuit breaker sampling window. |
 | `CircuitBreakerBreakDuration` | `TimeSpan` | `00:00:30` | Duration circuit stays open after tripping. |

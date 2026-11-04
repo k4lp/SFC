@@ -104,7 +104,7 @@ public class Round4InteractionE2ETests
         h.Fake.Records[id]["StageName"]!.GetValue<string>().Should().Be("Closed Won", "2.4.0 sent the ordinal 1");
 
         await h.Get<IBulkService>().InsertAsync("Opportunity", new[] { new Dictionary<string, object?> { ["Name"] = "o", ["StageName"] = R4Stage.ClosedWon } });
-        h.Fake.LastBulkUpload.Should().Be("Name,StageName\r\no,Closed Won\r\n", "2.4.0 wrote the member name ClosedWon");
+        h.Fake.LastBulkUpload.Should().Be("Name,StageName\no,Closed Won\n", "2.4.0 wrote the member name ClosedWon");
     }
 
     // ---- sObject Collections limits x caller-chosen bulkThreshold x failure index ------------------------------------

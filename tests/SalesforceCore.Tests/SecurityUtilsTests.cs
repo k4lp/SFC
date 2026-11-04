@@ -128,23 +128,14 @@ public class SecurityUtilsTests
     }
 
     [Fact]
-    public void SanitizeSoql_ShouldNormalizeUnicodeQuoteHomoglyphs()
+    public void SanitizeSoql_KeepsUnicodeQuoteHomoglyphs_AsData_BecauseOnlyAsciiApostropheDelimitsSoqlStrings()
     {
-        // Unicode apostrophe/quote homoglyphs that could bypass naive filtering
-        var testCases = new[]
-        {
-            ("Smithʼ OR 1=1", "Smith\\' OR 1=1"),  // U+02BC Modifier Letter Apostrophe
-            ("Testʹ--", "Test\\'--"),              // U+02B9 Modifier Letter Prime  
-            ("Value' OR", "Value\\' OR"),          // U+2019 Right Single Quotation Mark
-            ("Data' AND", "Data\\' AND"),          // U+2018 Left Single Quotation Mark
-            ("Name' DROP", "Name\\' DROP"),        // U+FF07 Fullwidth Apostrophe
-        };
-
-        foreach (var (input, expected) in testCases)
-        {
-            var result = SecurityUtils.SanitizeSoql(input);
-            result.Should().Be(expected, because: $"Unicode quote in '{input}' should be normalized and escaped");
-        }
+        // 2.6.0: SOQL delimits strings only with U+0027, so homoglyphs cannot close a literal. Rewriting them changed
+        // the searched value (O’Brien never matched). They are kept; ASCII quotes are escaped.
+        SecurityUtils.SanitizeSoql("Smithʼ OR 1=1").Should().Be("Smithʼ OR 1=1");
+        SecurityUtils.SanitizeSoql("O’Brien").Should().Be("O’Brien");
+        SecurityUtils.SanitizeSoql("Value' OR").Should().Be("Value\\' OR");
+        SecurityUtils.SanitizeSoql("a\b\f").Should().Be("a\\b\\f");
     }
 
     [Fact]
@@ -314,7 +305,7 @@ public class SecurityUtilsTests
         // Should be safe - all vectors neutralized
         result.Should().NotContain("\0");           // No null bytes
         result.Should().NotContain("\x01");         // No control chars
-        result.Should().NotContain("ʼ");            // Unicode normalized
+        result.Should().Contain("ʼ");               // kept as data (cannot delimit a SOQL string)
         result.Should().Contain("\\'");             // Quotes escaped
     }
 

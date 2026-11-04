@@ -774,10 +774,10 @@ Add this `nuget.config` beside your `.sln`/`.csproj`. It keeps nuget.org for nor
 ```
 
 ```bash
-dotnet add package SalesforceCore --version 2.5.0
-dotnet add package SalesforceCore.AspNetCore --version 2.5.0
-dotnet add package SalesforceCore.SqlServer --version 2.5.0   # optional
-dotnet tool install --global SalesforceCore.ModelGenerator --version 2.5.0
+dotnet add package SalesforceCore --version 2.6.0
+dotnet add package SalesforceCore.AspNetCore --version 2.6.0
+dotnet add package SalesforceCore.SqlServer --version 2.6.0   # optional
+dotnet tool install --global SalesforceCore.ModelGenerator --version 2.6.0
 ```
 
 Don't pass `--source` / `--add-source`: `--source` replaces your configured feeds (so dependencies like CsvHelper can't restore), and `dotnet tool install` rejects `--add-source` when package source mapping is on. The `nuget.config` above handles both.
@@ -1523,6 +1523,8 @@ Scaffolds a complete form based on model metadata:
 | [09-Security.md](docs/09-Security.md) | Security |
 | [18-Extensibility-and-Pipeline.md](docs/18-Extensibility-and-Pipeline.md) | 2.0 composition, HTTP pipeline, raw requests, typed errors |
 | [19-LINQ-to-SOQL.md](docs/19-LINQ-to-SOQL.md) | LINQ provider guide: every operator, SOQL translation table, aggregates, semi-joins, limits |
+| [20-Data-Type-Mapping.md](docs/20-Data-Type-Mapping.md) | Every Salesforce field type: .NET type, REST JSON, SOQL literal and Bulk CSV format |
+| [21-Wire-Compliance.md](docs/21-Wire-Compliance.md) | Headers, limits, errors, OAuth and API behaviour checked against the Salesforce docs (no live org) |
 | [10-API-Reference.md](docs/10-API-Reference.md) | Complete API reference |
 | [11-Additional-Services.md](docs/11-Additional-Services.md) | Files, Reports, Tooling |
 | [12-Tutorial-MVC-CRUD-App.md](docs/12-Tutorial-MVC-CRUD-App.md) | Step-by-step MVC tutorial |

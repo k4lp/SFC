@@ -476,7 +476,9 @@ public class BulkService : IBulkService
             ObjectName = objectName,
             Operation = operation,
             ExternalIdFieldName = externalIdField,
-            ContentType = BulkContentType.CSV
+            ContentType = BulkContentType.CSV,
+            // Declare the line ending the data actually uses (caller-supplied CSV may be CRLF).
+            LineEnding = csvData.Contains("\r\n", StringComparison.Ordinal) ? "CRLF" : "LF"
         }, cancellationToken);
 
         try
@@ -551,6 +553,10 @@ public class BulkService : IBulkService
         var config = new CsvConfiguration(CultureInfo.InvariantCulture)
         {
             HasHeaderRecord = true,
+            // Bulk API 2.0 jobs default to lineEnding=LF ("Create a Job"); CsvHelper writes CRLF by default, which
+            // Salesforce rejects with "LineEnding is invalid on user data" (2.5.0 and earlier). The job is also
+            // created with an explicit lineEnding=LF.
+            NewLine = "\n",
             ShouldQuote = args => args.Field?.Contains(',') == true ||
                                   args.Field?.Contains('"') == true ||
                                   args.Field?.Contains('\n') == true ||
@@ -589,35 +595,7 @@ public class BulkService : IBulkService
     /// Formats a value the way Bulk API 2.0 expects it, independent of the thread culture: invariant numbers
     /// (<c>1.5</c>, not <c>1,5</c>), ISO-8601 dates/datetimes in UTC, lower-case booleans.
     /// </summary>
-    internal static string FormatCsvValue(object? value) => value switch
-    {
-        null => string.Empty,
-        string s => s,
-        bool b => b ? "true" : "false",
-        DateTime dt => (dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : dt).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        DateTimeOffset dto => dto.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        TimeOnly t => t.ToString("HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        double dbl => FormatFloatingPoint(dbl),
-        float fl => FormatFloatingPoint(fl),
-        Enum e => Mapping.SalesforceMapper.GetEnumSalesforceValue(e),
-        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? string.Empty
-    };
-
-    /// <summary>
-    /// Positional digits (no exponent). NaN, infinity and magnitudes beyond decimal range cannot be stored in a
-    /// Salesforce number field; 2.4.0 and earlier threw a bare OverflowException from the cast.
-    /// </summary>
-    private static string FormatFloatingPoint(double value)
-    {
-        if (double.IsNaN(value) || double.IsInfinity(value) || Math.Abs(value) > (double)decimal.MaxValue)
-        {
-            throw new ArgumentException($"The number {value.ToString(CultureInfo.InvariantCulture)} cannot be written to a Bulk API CSV.");
-        }
-
-        return ((decimal)value).ToString(CultureInfo.InvariantCulture);
-    }
+    internal static string FormatCsvValue(object? value) => Mapping.SalesforceWireFormat.CsvValue(value);
 
     /// <summary>
     /// Parses Salesforce Bulk API result CSV using CsvHelper for RFC 4180 compliance.

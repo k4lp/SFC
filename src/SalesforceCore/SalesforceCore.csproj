@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore</PackageId>
-    <Version>2.5.0</Version>
+    <Version>2.6.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore</Product>
@@ -19,7 +19,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageReleaseNotes>2.4.0: JWT refresh fix, streamed downloads over 10 MB, describe errors propagate, case-insensitive typed responses, Bulk nulls as #N/A, opt-in gzip. See CHANGELOG.md and MIGRATION.md.</PackageReleaseNotes>
+    <PackageReleaseNotes>2.6.0: Salesforce wire compliance - multipicklist/flags as A;B, Bulk CSV LF line endings, full-precision doubles in SOQL, +0000 dateTimes on typed reads, compound address/location, QueryBatchSize and ClientName headers. See CHANGELOG.md and MIGRATION.md.</PackageReleaseNotes>
     <Copyright>Copyright (c) 2024 SalesforceCore Contributors</Copyright>
 
     <!-- Build Settings -->

@@ -263,21 +263,7 @@ internal sealed class ComparisonCondition : SoqlCondition
         return $"{_field} {_operator} {FormatValue(_value)}";
     }
 
-    private static string FormatValue(object? value) => value switch
-    {
-        null => "NULL",
-        string s => $"'{SecurityUtils.SanitizeForSoql(s)}'",
-        bool b => b.ToString().ToUpperInvariant(),
-        DateTime dt => FormatDateTimeUtc(dt),
-        DateTimeOffset dto => FormatDateTimeOffsetUtc(dto),
-        DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        sbyte or byte or short or ushort or int or uint or long or ulong => Convert.ToString(value, CultureInfo.InvariantCulture)!,
-        decimal dec => dec.ToString(CultureInfo.InvariantCulture),
-        double dbl => dbl.ToString(CultureInfo.InvariantCulture),
-        float fl => fl.ToString(CultureInfo.InvariantCulture),
-        Enum e => $"'{GetEnumSalesforceValue(e)}'",
-        _ => $"'{SecurityUtils.SanitizeForSoql(value.ToString() ?? "")}'"
-    };
+    private static string FormatValue(object? value) => Mapping.SalesforceWireFormat.SoqlLiteral(value);
 }
 
 internal sealed class NullCondition : SoqlCondition
@@ -354,21 +340,7 @@ internal sealed class InCondition : SoqlCondition
         return $"{_field} {op} ({formattedValues})";
     }
 
-    private static string FormatValue(object? value) => value switch
-    {
-        null => "NULL",
-        string s => $"'{SecurityUtils.SanitizeForSoql(s)}'",
-        bool b => b.ToString().ToUpperInvariant(),
-        DateTime dt => FormatDateTimeUtc(dt),
-        DateTimeOffset dto => FormatDateTimeOffsetUtc(dto),
-        DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        sbyte or byte or short or ushort or int or uint or long or ulong => Convert.ToString(value, CultureInfo.InvariantCulture)!,
-        decimal dec => dec.ToString(CultureInfo.InvariantCulture),
-        double dbl => dbl.ToString(CultureInfo.InvariantCulture),
-        float fl => fl.ToString(CultureInfo.InvariantCulture),
-        Enum e => $"'{GetEnumSalesforceValue(e)}'",
-        _ => $"'{SecurityUtils.SanitizeForSoql(value.ToString() ?? "")}'"
-    };
+    private static string FormatValue(object? value) => Mapping.SalesforceWireFormat.SoqlLiteral(value);
 }
 
 internal sealed class MultiSelectCondition : SoqlCondition

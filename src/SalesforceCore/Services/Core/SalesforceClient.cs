@@ -37,19 +37,19 @@ public class SalesforceClient : ISalesforceClient
     /// Options for typed responses. Case-insensitive: Apex REST serialises Apex property names as declared
     /// (usually camelCase), and case-sensitive binding left PascalCase DTO properties silently null.
     /// </summary>
-    internal static readonly JsonSerializerOptions ReadOptions = new()
+    internal static readonly JsonSerializerOptions ReadOptions = new JsonSerializerOptions()
     {
         PropertyNameCaseInsensitive = true,
         Converters = { new Mapping.SalesforceEnumJsonConverterFactory() }
-    };
+    }.WithSalesforceDates();
 
     /// <summary>Serializer options used for request bodies.</summary>
-    internal static readonly JsonSerializerOptions JsonOptions = new()
+    internal static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         // Enums are picklist values: written as [SalesforceValue] or the member name, never the ordinal.
         Converters = { new Mapping.SalesforceEnumJsonConverterFactory() }
-    };
+    }.WithSalesforceDates();
 
     /// <summary>
     /// Creates a new SalesforceClient.
@@ -280,6 +280,12 @@ public class SalesforceClient : ISalesforceClient
             message.Headers.TryAddWithoutValidation(name, value);
         }
 
+        // REST API Developer Guide, "Call Options Header": Sforce-Call-Options: client=<identifier>.
+        if (!string.IsNullOrWhiteSpace(_options.ClientName) && !message.Headers.Contains("Sforce-Call-Options"))
+        {
+            message.Headers.TryAddWithoutValidation("Sforce-Call-Options", $"client={_options.ClientName.Trim()}");
+        }
+
         if (request.JsonBody != null)
         {
             var json = JsonSerializer.SerializeToUtf8Bytes(request.JsonBody, request.JsonBody.GetType(), JsonOptions);
@@ -380,7 +386,7 @@ public class SalesforceClient : ISalesforceClient
         var requestId = response.Headers.TryGetValues("Sforce-Request-Id", out var ids) ? ids.FirstOrDefault()
             : response.Headers.TryGetValues("X-Request-Id", out var xids) ? xids.FirstOrDefault() : null;
         TimeSpan? retryAfter = response.Headers.RetryAfter?.Delta
-            ?? (response.Headers.RetryAfter?.Date is { } date ? date - DateTimeOffset.UtcNow : null);
+            ?? (response.Headers.RetryAfter?.Date is { } date ? (date > DateTimeOffset.UtcNow ? date - DateTimeOffset.UtcNow : TimeSpan.Zero) : null);
         return SalesforceErrorMapper.FromResponse((int)response.StatusCode, content, requestId, retryAfter, _options.MaxErrorBodyLength);
     }
 
@@ -416,6 +422,16 @@ public class SalesforceClient : ISalesforceClient
     {
         var q = path.IndexOf('?');
         return q < 0 ? path : path[..q] + "?…";
+    }
+}
+
+internal static class SalesforceJsonOptionsExtensions
+{
+    /// <summary>Adds the Salesforce dateTime/date/time converters (2.6.0).</summary>
+    public static JsonSerializerOptions WithSalesforceDates(this JsonSerializerOptions options)
+    {
+        foreach (var c in Mapping.SalesforceDateJsonConverters.All) options.Converters.Add(c);
+        return options;
     }
 }
 

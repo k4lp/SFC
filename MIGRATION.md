@@ -1,6 +1,19 @@
 # Migrating to SalesforceCore 2.2 / 2.3 / 2.4 / 2.5
 
 <a id="250"></a>
+## 2.6.0
+
+No API removals. Behaviour changes to check:
+- **Multipicklist values** from `string[]`, `List<string>` or `[Flags]` enums are now sent as `A;B`. If you worked
+  around the old behaviour by joining yourself, keep passing a `string` — it is sent unchanged.
+- **`SecurityUtils.SanitizeForSoql`** no longer replaces Unicode quote characters (’ ʼ) with `'` or normalises to NFC.
+  Filters now match the stored text exactly. Injection safety is unchanged (backslash escaping).
+- **Bulk CSV** uses LF line endings; if you post-process `BulkService` CSV, expect `\n`.
+- **Typed JSON** (`GetAsync<T>`, Apex typed calls) now reads Salesforce dateTimes into `DateTime` with `Kind=Utc`, and
+  writes `DateTime`/`DateOnly`/`TimeOnly` in Salesforce format (`...fffZ`, `yyyy-MM-dd`, `HH:mm:ss.fffZ`).
+- **Compound fields** (`SalesforceAddress`, `SalesforceLocation`) are never written.
+- New optional settings: `QueryBatchSize` (200–2000) and `ClientName`. Both off by default.
+
 ## 2.5.0
 
 No API removals; two additive APIs (`SalesforceRequest.UnboundedResponse`, `SalesforceEnumJsonConverterFactory`).
