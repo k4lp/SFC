@@ -96,6 +96,9 @@ var resultsCsv = await bulkService.GetQueryResultsAsync(job.Id);
   `[SalesforceValue]`.
 - `IDataService.Batch*Async` below `bulkThreshold` uses sObject Collections in calls of at most 200 records/ids
   (2.5.0); failure indexes refer to your input list.
+- Since 2.6.0: generated CSV uses LF line endings and the job declares `lineEnding` (CRLF for caller CSV that uses it);
+  cells use the formats in [20 — Data Type Mapping](20-Data-Type-Mapping.md) (multipicklists `A;B`, no exponents,
+  UTC dateTimes). `byte[]` throws: Bulk API 2.0 cannot load base64 fields.
 
 ## Composite API (`ICompositeService`)
 Use for small/medium batches or when you need partial success handling without bulk CSV.

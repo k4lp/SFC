@@ -1039,37 +1039,35 @@ public class SoqlExpressionVisitor : ExpressionVisitor
         return compiled();
     }
 
-    private static string FormatValue(object? value)
+    private static string FormatValue(object? value) => value switch
     {
-        return value switch
-        {
-            null => "NULL",
-            string s => $"'{SecurityUtils.SanitizeForSoql(s)}'",
-            bool b => b.ToString().ToUpperInvariant(),
-            DateTime dt => FormatDateTimeUtc(dt),
-            DateTimeOffset dto => FormatDateTimeOffsetUtc(dto),
-            DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            sbyte or byte or short or ushort or int or uint or long or ulong => Convert.ToString(value, CultureInfo.InvariantCulture)!,
-            decimal dec => dec.ToString(CultureInfo.InvariantCulture),
-            double dbl => FormatFloatingPoint(dbl),
-            float fl => FormatFloatingPoint(fl),
-            Enum e => $"'{GetEnumSalesforceValue(e)}'",
-            _ => $"'{SecurityUtils.SanitizeForSoql(value.ToString() ?? "")}'"
-        };
-    }
+        double dbl => FormatFloatingPoint(dbl),
+        float fl => FormatFloatingPoint(fl),
+        _ => Mapping.SalesforceWireFormat.SoqlLiteral(value)
+    };
 
     /// <summary>
-    /// SOQL numeric literals have no exponent form, so 1E-07 / 1E+20 (what double.ToString emits) are rejected.
-    /// Render through decimal, which always prints positional digits.
+    /// SOQL numeric literals have no exponent form. Positional digits with full round-trip precision (2.5.0 and
+    /// earlier went through decimal and kept 15 significant digits).
     /// </summary>
     private static string FormatFloatingPoint(double value)
     {
-        if (double.IsNaN(value) || double.IsInfinity(value) || Math.Abs(value) > (double)decimal.MaxValue)
+        if (double.IsNaN(value) || double.IsInfinity(value))
         {
             throw new NotSupportedException($"The number {value.ToString(CultureInfo.InvariantCulture)} cannot be written as a SOQL literal.");
         }
 
-        return ((decimal)value).ToString(CultureInfo.InvariantCulture);
+        return Mapping.SalesforceWireFormat.FormatNumber(value);
+    }
+
+    private static string FormatFloatingPoint(float value)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value))
+        {
+            throw new NotSupportedException($"The number {value.ToString(CultureInfo.InvariantCulture)} cannot be written as a SOQL literal.");
+        }
+
+        return Mapping.SalesforceWireFormat.FormatNumber(value);
     }
 
     private static string FormatDateTimeUtc(DateTime dateTime)

@@ -124,7 +124,6 @@ public class InteractionScenarioTests
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
-    [InlineData(1e30)]
     public void BulkCsv_UnrepresentableDouble_ThrowsArgumentException_NotOverflow(double value)
         => FluentActions.Invoking(() => BulkService.FormatCsvValue(value)).Should().Throw<ArgumentException>();
 

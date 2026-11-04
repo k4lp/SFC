@@ -175,7 +175,7 @@ public class CompositeService : ICompositeService
                     Method = "POST",
                     Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}",
                     ReferenceId = referenceId,
-                    Body = record
+                    Body = Mapping.SalesforceWireFormat.RecordBody(record)
                 });
                 index++;
             }
@@ -237,7 +237,7 @@ public class CompositeService : ICompositeService
                     Method = "PATCH",
                     Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}/{id}",
                     ReferenceId = referenceId,
-                    Body = updateData
+                    Body = Mapping.SalesforceWireFormat.RecordBody(updateData)
                 });
                 index++;
             }
@@ -353,7 +353,7 @@ public class CompositeService : ICompositeService
                     Method = "PATCH",
                     Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}/{externalIdField}/{UrlUtils.Escape(externalId)}",
                     ReferenceId = referenceId,
-                    Body = upsertData
+                    Body = Mapping.SalesforceWireFormat.RecordBody(upsertData)
                 });
                 index++;
             }
@@ -442,7 +442,7 @@ public class CompositeService : ICompositeService
                 Method = "POST",
                 Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}",
                 ReferenceId = referenceId,
-                Body = data
+                Body = Mapping.SalesforceWireFormat.RecordBody(data)
             });
             return this;
         }
@@ -455,7 +455,7 @@ public class CompositeService : ICompositeService
                 Method = "PATCH",
                 Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}/{id}",
                 ReferenceId = referenceId,
-                Body = data
+                Body = Mapping.SalesforceWireFormat.RecordBody(data)
             });
             return this;
         }

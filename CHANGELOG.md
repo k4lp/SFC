@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.6.0 — 2026-11-04
+
+Salesforce compliance pass over data types and communication, checked against the official documentation (REST API
+Developer Guide, SOQL and SOSL Reference, Bulk API 2.0 Developer Guide, Object Reference "Field Types"). **No live org
+was used.** New: `SalesforceWireFormat` (single source of truth for wire formatting), `DataTypeMatrixTests` (31) and
+`WireComplianceE2ETests` (5), [docs/20-Data-Type-Mapping.md](docs/20-Data-Type-Mapping.md) and
+[docs/21-Wire-Compliance.md](docs/21-Wire-Compliance.md). See [MIGRATION.md](MIGRATION.md#260).
+
+### Fixed
+- **Multi-select picklists were sent wrong.** `string[]`/`List<string>` values went out as `"System.String[]"` and
+  `[Flags]` enums as `"A, B"`; Salesforce expects `"A;B"` (Object Reference, multipicklist). REST, composite and Bulk now
+  join with `;`; reads split `A;B` into `string[]`, `List<string>` or a `[Flags]` enum.
+- **Bulk API 2.0 uploads used CRLF** (CsvHelper default) while jobs default to `lineEnding=LF` (Bulk API 2.0, "Create a
+  Job"). Generated CSV now uses LF and the job declares `lineEnding`; caller CSV with CRLF is declared `CRLF`.
+- **`double` SOQL literals lost digits.** They went through `decimal`, keeping 15 significant digits
+  (`0.1234567890123456789` → `0.123456789012346`); now full round-trip precision, still without exponent. `float`
+  uses its own shortest form (`0.1f` → `0.1`). `SoqlBuilder` conditions also printed doubles with exponents (`1E-07`).
+- **Typed responses failed on REST dateTimes** (`2024-01-02T03:04:05.000+0000`), which System.Text.Json rejects.
+  Salesforce date/time converters are registered for typed reads and writes (`DateTime` read as UTC).
+- **Composite create/update/upsert bodies** skipped the record formatting used by single-record calls (dates,
+  multipicklists).
+- **SOQL string escaping** now covers `` and `` (SOQL "Quoted String Escape Sequences") and no longer rewrites
+  Unicode quotes or NFC-normalises text, which changed the value searched (`O’Brien` never matched).
+- A past `Retry-After` date produced a negative `RetryAfter`; it is now zero.
+
+### Added
+- `SalesforceAddress` / `SalesforceLocation` for reading compound fields (omitted on write; write the components).
+- `SalesforceWireFormat.To18CharId`, `IdEquals`, `SoqlLiteral`, `CsvValue`, `FormatMultiPicklist`, `ParseFlags`.
+- `Salesforce:QueryBatchSize` → `Sforce-Query-Options: batchSize=N`; `Salesforce:ClientName` →
+  `Sforce-Call-Options: client=NAME`.
+- SOQL statements over 100,000 characters are rejected before sending (SOQL and SOSL Limits).
+
 ## 2.5.0 — 2026-11-04
 
 Interaction audit of the 2.1–2.4 fixes: each fix was exercised together with the features it touches (retries x

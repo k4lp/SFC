@@ -26,6 +26,16 @@ internal sealed class SalesforceOptionsValidator : IValidateOptions<SalesforceOp
             failures.Add($"Salesforce:ApiVersion '{options.ApiVersion}' is not a valid Salesforce API version (expected e.g. 'v62.0', minimum v{SalesforceApiVersion.MinimumMajor}.0).");
         }
 
+        if (options.QueryBatchSize is < 200 or > 2000)
+        {
+            failures.Add("Salesforce:QueryBatchSize must be between 200 and 2000 (REST Query Options header).");
+        }
+
+        if (options.ClientName is { } cn && (cn.Contains(',') || cn.Contains('\r') || cn.Contains('\n')))
+        {
+            failures.Add("Salesforce:ClientName cannot contain commas or line breaks (Sforce-Call-Options header).");
+        }
+
         if (options.MaxRetries < 0 || options.MaxRetries > 10)
         {
             failures.Add("Salesforce:MaxRetries must be between 0 and 10.");

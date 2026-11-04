@@ -327,6 +327,19 @@ public class SalesforceOptions
     public bool PartitionSchemaCacheByUser { get; set; } = true;
 
     /// <summary>
+    /// Optional REST query page size sent as <c>Sforce-Query-Options: batchSize=N</c> on query/queryAll/queryMore
+    /// (200-2000; Salesforce may return fewer). Null (default) sends no header, so Salesforce uses 2000.
+    /// </summary>
+    public int? QueryBatchSize { get; set; }
+
+    /// <summary>
+    /// Optional client identifier sent on every REST call as <c>Sforce-Call-Options: client=NAME</c> (REST API
+    /// Developer Guide, "Call Options Header"); shows up in Event Monitoring/API usage. Null (default) sends nothing.
+    /// A caller-supplied Sforce-Call-Options header on a request wins.
+    /// </summary>
+    public string? ClientName { get; set; }
+
+    /// <summary>
     /// When true (default) and an authenticated user is available via <c>IUserContextProvider</c>, lookup search
     /// results are cached per user. Salesforce applies sharing to each user's query, so a shared cache entry could
     /// otherwise return records one user can see to another user. Set to false for single-integration-user apps.

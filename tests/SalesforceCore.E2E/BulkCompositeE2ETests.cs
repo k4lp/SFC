@@ -43,8 +43,8 @@ public class BulkCompositeE2ETests
         finally { CultureInfo.CurrentCulture = prev; }
 
         h.Fake.LastBulkUpload.Should().Be(
-            "Name,AnnualRevenue,Rating__c,Since__c,Day__c,Active__c,Blank__c\r\n" +
-            "\"Acme, \"\"Inc\"\"\nLine2\",1234.5,0.25,2024-01-02T03:04:05.000Z,2024-01-02,true,\r\n");
+            "Name,AnnualRevenue,Rating__c,Since__c,Day__c,Active__c,Blank__c\n" +
+            "\"Acme, \"\"Inc\"\"\nLine2\",1234.5,0.25,2024-01-02T03:04:05.000Z,2024-01-02,true,\n");
     }
 
     [Fact]

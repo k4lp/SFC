@@ -8,6 +8,7 @@ using SalesforceCore.Models.Metadata;
 using SalesforceCore.Security;
 using SalesforceCore.Services.Caching;
 using SalesforceCore.Services.Core;
+using SalesforceCore.Http;
 using SalesforceCore.Services.Metadata;
 using SalesforceCore.Query;
 using SalesforceCore.Services.Query; // Ensure SoqlBuilder is found
@@ -77,9 +78,35 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             }
         }
 
+        // SOQL and SOSL Reference, "SOQL and SOSL Limits": a SOQL statement is limited to 100,000 characters.
+        if (soql.Length > MaxSoqlLength)
+        {
+            throw new ArgumentException($"SOQL is {soql.Length:N0} characters; Salesforce accepts at most {MaxSoqlLength:N0}.", nameof(soql));
+        }
+
         var encodedSoql = UrlUtils.Escape(soql);
-        var result = await _client.GetAsync<QueryResult>($"{endpoint}?q={encodedSoql}", cancellationToken);
-        return result;
+        return await GetQueryPageAsync($"{endpoint}?q={encodedSoql}", cancellationToken);
+    }
+
+    private const int MaxSoqlLength = 100_000;
+
+    /// <summary>
+    /// GET a query page, sending <c>Sforce-Query-Options: batchSize=N</c> when <see cref="SalesforceOptions.QueryBatchSize"/>
+    /// is set (REST API Developer Guide, "Query Options Header": 200-2000, a hint Salesforce may lower).
+    /// </summary>
+    private async Task<QueryResult> GetQueryPageAsync(string path, CancellationToken cancellationToken)
+    {
+        if (_options.QueryBatchSize is not int batchSize)
+        {
+            return await _client.GetAsync<QueryResult>(path, cancellationToken);
+        }
+
+        var request = SalesforceRequest.Get(path);
+        request.Headers["Sforce-Query-Options"] = $"batchSize={batchSize.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        var response = await _client.SendAsync(request, cancellationToken);
+        return string.IsNullOrWhiteSpace(response.Content)
+            ? new QueryResult()
+            : System.Text.Json.JsonSerializer.Deserialize<QueryResult>(response.Content, Core.SalesforceClient.ReadOptions)!;
     }
 
     /// <inheritdoc/>
@@ -106,7 +133,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             throw new ArgumentException("Invalid nextRecordsUrl.", nameof(nextRecordsUrl));
         }
 
-        return await _client.GetAsync<QueryResult>(path, cancellationToken);
+        return await GetQueryPageAsync(path, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -1246,7 +1273,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
         {
             if (excludedFields != null && excludedFields.Contains(key)) continue;
             if (dropNullValues && value == null) continue;
-            payload[key] = value;
+            payload[key] = Mapping.SalesforceWireFormat.RecordValue(value);
         }
         return payload;
     }

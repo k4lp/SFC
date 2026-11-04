@@ -25,19 +25,14 @@ public static class SecurityUtils
         // Step 1: Remove null bytes (can be used to truncate strings or bypass WAF)
         var sanitized = input.Replace("\0", string.Empty);
 
-        // Step 2: Normalize Unicode to prevent homograph attacks (e.g., using ʼ instead of ')
-        // Use FormC to compose characters and catch decomposed sequences
-        sanitized = sanitized.Normalize(System.Text.NormalizationForm.FormC);
+        // 2.6.0: no Unicode normalisation or quote-homoglyph replacement. SOQL only delimits strings with the ASCII
+        // apostrophe, so ’ or ʼ cannot end a literal; rewriting them (and NFC-composing text) changed the value being
+        // searched for, so O’Brien never matched. Escaping below is what prevents injection.
 
-        // Step 3: Replace any Unicode quote-like characters with standard single quote
-        // These are sometimes used to bypass naive quote filtering
-        sanitized = NormalizeQuoteLikeCharacters(sanitized);
-
-        // Step 4: Remove control characters (except newline/tab which SOQL handles)
-        // Control characters can sometimes cause parsing issues
+        // Step 2: Remove control characters other than those SOQL escapes (\n \r \t \b \f).
         sanitized = RemoveControlCharacters(sanitized);
 
-        // Step 5: Escape using SOQL backslash escape sequences.
+        // Step 3: Escape using SOQL backslash escape sequences.
         // SOQL does NOT support SQL-style quote doubling (''); the only correct escape for a quote is \'.
         // Backslash MUST be escaped first, otherwise an input such as  \' OR Id != null OR Name = \'
         // would turn the escaping backslash into a literal and close the string (injection).
@@ -46,7 +41,7 @@ public static class SecurityUtils
 
     /// <summary>
     /// Escapes a value for use inside a single-quoted SOQL/SOSL string literal using the documented
-    /// escape sequences (\\, \', \", \n, \r, \t). Does not add the surrounding quotes.
+    /// escape sequences (\\, \', \", \n, \r, \t, \b, \f). Does not add the surrounding quotes.
     /// </summary>
     public static string EscapeSoqlStringLiteral(string? input)
     {
@@ -62,6 +57,8 @@ public static class SecurityUtils
                 case '\n': sb.Append("\\n"); break;
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
+                case '\b': sb.Append("\\b"); break;
+                case '\f': sb.Append("\\f"); break;
                 default: sb.Append(c); break;
             }
         }
@@ -125,7 +122,7 @@ public static class SecurityUtils
         foreach (var c in input)
         {
             // Allow standard whitespace: newline, carriage return, tab, space
-            if (c == '\n' || c == '\r' || c == '\t' || c >= ' ')
+            if (c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f' || c >= ' ')
             {
                 // Also filter out DEL (0x7F) and C1 control characters (0x80-0x9F)
                 if (c != '\u007F' && (c < '\u0080' || c > '\u009F'))
