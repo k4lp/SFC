@@ -26,7 +26,7 @@ public class ReportServiceTests
     public async Task ListReportsAsync_ShouldCallAnalyticsEndpoint()
     {
         // Arrange
-        var expectedResponse = JsonNode.Parse("{ \"reports\": [ { \"id\": \"00Oxxx\", \"name\": \"My Report\" } ] }")
+        var expectedResponse = JsonNode.Parse("{ \"reports\": [ { \"id\": \"00O000000000001\", \"name\": \"My Report\" } ] }")
             ?? new JsonObject();
 
         var tcs = new TaskCompletionSource<JsonNode>();
@@ -41,14 +41,14 @@ public class ReportServiceTests
 
         // Assert
         result.Should().HaveCount(1);
-        result[0].Id.Should().Be("00Oxxx");
+        result[0].Id.Should().Be("00O000000000001");
     }
 
     [Fact]
     public async Task RunReportAsync_ShouldCallRunEndpoint()
     {
         // Arrange
-        var reportId = "00Oxxx";
+        var reportId = "00O000000000001";
         var expectedResponse = JsonNode.Parse("{ \"reportMetadata\": { \"name\": \"Test\" } }")
             ?? new JsonObject();
 
@@ -73,7 +73,7 @@ public class ReportServiceTests
     public async Task RunReportWithFiltersAsync_ShouldPostFilters()
     {
         // Arrange
-        var reportId = "00Oxxx";
+        var reportId = "00O000000000001";
         var filters = new List<ReportFilter>
         {
             new ReportFilter { Column = "ACCOUNT_NAME", Operator = "equals", Value = "Acme" }

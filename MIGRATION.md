@@ -1,6 +1,26 @@
-# Migrating to SalesforceCore 2.2 / 2.3 / 2.4 / 2.5
+# Migrating to SalesforceCore 2.2 – 2.7
 
-<a id="250"></a>
+<a id="270"></a>
+## 2.7.0
+
+No API removals. Stricter input checks that can reject calls that used to be sent:
+- **Report and report instance IDs** must be 15/18-character Salesforce IDs (`ArgumentException`).
+- **Composite** update/delete record IDs and `ICompositeBatchBuilder.Update/Delete` IDs must be Salesforce IDs or a
+  composite reference such as `@{newAccount.id}`; object names are validated.
+- **Tooling** `CreateAsync/UpdateAsync/DeleteAsync/GetDebugLogContentAsync` validate object names and IDs.
+- **Any request path** containing `.`/`..` segments (also `%2e%2e` or `%2F..%2F` after decoding), `\` or control
+  characters throws `ArgumentException` before sending. An external ID value such as `a/../b` is therefore rejected.
+- **HTTP**: `Domain` must be `https://`, and tokens are not sent over `http://`. For a local test proxy set
+  `Salesforce:AllowInsecureHttp=true`. A response redirected to a different host throws `SalesforceConnectionException`.
+- **Gzip** responses larger than `MaxDecompressedResponseBytes` (1 GiB) after decompression fail with
+  `InvalidDataException`; raise it or set `0` for unlimited.
+- **Exception messages** from non-JSON error bodies are redacted (`[REDACTED]` in place of tokens).
+- **`SecurityUtils.SanitizeFileName`** also removes `\ : * ? " < > |`, control characters and leading dots on Linux, and
+  prefixes Windows device names (`CON.txt` → `_CON.txt`). `FileController.Download` sends non-image/PDF types as
+  `application/octet-stream`.
+- Identifier validation no longer accepts a trailing newline.
+
+<a id="260"></a>
 ## 2.6.0
 
 No API removals. Behaviour changes to check:

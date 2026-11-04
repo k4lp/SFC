@@ -186,6 +186,7 @@ public class SalesforceClient : ISalesforceClient
     public string BuildPath(string relativePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        SalesforcePathGuard.Ensure(relativePath, nameof(relativePath));
         if (!relativePath.StartsWith('/'))
         {
             relativePath = "/" + relativePath;
@@ -277,13 +278,16 @@ public class SalesforceClient : ISalesforceClient
             {
                 throw new ArgumentException($"Header '{name}' is managed by the client and cannot be overridden.");
             }
+            EnsureSafeHeader(name, value);
             message.Headers.TryAddWithoutValidation(name, value);
         }
 
         // REST API Developer Guide, "Call Options Header": Sforce-Call-Options: client=<identifier>.
         if (!string.IsNullOrWhiteSpace(_options.ClientName) && !message.Headers.Contains("Sforce-Call-Options"))
         {
-            message.Headers.TryAddWithoutValidation("Sforce-Call-Options", $"client={_options.ClientName.Trim()}");
+            var clientName = _options.ClientName.Trim();
+            EnsureSafeHeader("Sforce-Call-Options", clientName);
+            message.Headers.TryAddWithoutValidation("Sforce-Call-Options", $"client={clientName}");
         }
 
         if (request.JsonBody != null)
@@ -302,6 +306,19 @@ public class SalesforceClient : ISalesforceClient
             message.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(request.ContentType ?? "application/octet-stream");
         }
         return message;
+    }
+
+    /// <summary>2.7.0: header names must be RFC 7230 tokens and values must not carry CR, LF or NUL (header injection).</summary>
+    internal static void EnsureSafeHeader(string name, string? value)
+    {
+        if (string.IsNullOrEmpty(name) || name.Any(c => c <= 32 || c >= 127 || "()<>@,;:\\\"/[]?={}".Contains(c)))
+        {
+            throw new ArgumentException($"Invalid HTTP header name '{name}'.", nameof(name));
+        }
+        if (value != null && value.Any(c => c == '\r' || c == '\n' || c == '\0'))
+        {
+            throw new ArgumentException($"HTTP header '{name}' contains CR, LF or NUL (header injection).", nameof(value));
+        }
     }
 
     private string ValidateInstanceUrl(string instanceUrl)
@@ -387,7 +404,7 @@ public class SalesforceClient : ISalesforceClient
             : response.Headers.TryGetValues("X-Request-Id", out var xids) ? xids.FirstOrDefault() : null;
         TimeSpan? retryAfter = response.Headers.RetryAfter?.Delta
             ?? (response.Headers.RetryAfter?.Date is { } date ? (date > DateTimeOffset.UtcNow ? date - DateTimeOffset.UtcNow : TimeSpan.Zero) : null);
-        return SalesforceErrorMapper.FromResponse((int)response.StatusCode, content, requestId, retryAfter, _options.MaxErrorBodyLength);
+        return SalesforceErrorMapper.FromResponse((int)response.StatusCode, content, requestId, retryAfter, _options.MaxErrorBodyLength, SensitiveDataRedactor.Redact);
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<string>> CollectHeaders(HttpResponseMessage response)

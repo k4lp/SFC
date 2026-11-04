@@ -103,6 +103,11 @@ public class FileController : Controller
             var safeFilename = SecurityUtils.SanitizeFileName(filename ?? "download");
             var extension = Path.GetExtension(safeFilename).TrimStart('.');
             var mimeType = GetMimeType(extension);
+            // 2.7.0: attachments still carry a sniffable type; only passive types keep theirs.
+            if (!InlineSafeMimeTypes.Contains(mimeType))
+            {
+                mimeType = "application/octet-stream";
+            }
 
             ApplyFileSecurityHeaders();
             return File(content, mimeType, safeFilename);

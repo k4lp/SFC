@@ -352,7 +352,7 @@ public class GraphResponseContent
 public class CompositeGraphBuilder
 {
     private static readonly System.Text.RegularExpressions.Regex ReferencePattern =
-        new(@"^@\{[A-Za-z0-9_]{1,80}\.[A-Za-z0-9_]{1,80}\}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        new(@"^@\{[A-Za-z0-9_]{1,80}\.[A-Za-z0-9_]{1,80}\}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     private readonly CompositeGraphRequest _request = new();
     private readonly string _dataPath;

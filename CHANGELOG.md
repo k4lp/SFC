@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.7.0 — 2026-11-04
+
+Security pass: STRIDE threat model of every package, attack tests (payload corpora, hostile fake-server responses,
+malicious `instance_url` values) and fixes. New [docs/22-Security-Model.md](docs/22-Security-Model.md),
+`SecurityAttackTests` and `SecurityAttackE2ETests`. See [MIGRATION.md](MIGRATION.md#270).
+
+### Security fixes
+- **High: report ID path traversal.** `ReportService` validated report IDs with an empty `if` body, so
+  `00O/../../apexrest/Admin` was sent as a path and ran another endpoint with the caller's token. Report and report
+  instance IDs must now be 15/18-character IDs.
+- **High: path traversal through composite, Tooling and external IDs.** Composite update/delete took `Id` from record
+  data unchecked; Tooling CRUD and `GetDebugLogContentAsync` put object names and IDs in paths unchecked; external ID
+  value `..` survived `Uri.EscapeDataString`. New central `SalesforcePathGuard` rejects `.`/`..` segments (plain or
+  percent-encoded), backslashes, control characters and absolute URLs in every REST path and composite sub-request URL.
+- **High: access tokens in exception messages.** A non-JSON error body was copied into `SalesforceException.Message`
+  verbatim, so a proxy or hostile host that echoed `Authorization: Bearer …` leaked the token into logs and error pages.
+  Error bodies and messages are now redacted first.
+- **Medium: gzip decompression bomb.** With `EnableResponseCompression`, streamed reads had no size limit after
+  decompression. New `MaxDecompressedResponseBytes` (1 GiB).
+- **Medium: SQL identifier injection in the SqlServer cache.** Table/schema names were wrapped in `[...]` without
+  doubling `]`. Now quoted with `SqlIdentifier`.
+- **Medium: file names on Linux.** `SanitizeFileName` relied on `Path.GetInvalidFileNameChars()`, which on Linux only
+  removes `/` and NUL, so `..\..\x`, quotes and CR/LF passed. Portable rule set now; `Download` serves non-passive
+  types as `application/octet-stream`.
+- **Low: anchors.** Identifier/ID patterns used `$`, which matches before a trailing `\n` (`"Account\n"` passed). Now `\z`.
+- **Low: header injection.** Request header names/values and `ClientName` are checked for CR/LF/NUL.
+- **Low: plain HTTP.** Tokens are refused over `http://`; `Domain` must be `https://`; a response redirected to another
+  host is discarded (`SalesforceTransportSecurityHandler`).
+
+### Added
+- `SalesforcePathGuard`, `SalesforceTransportSecurityHandler`, `SizeLimitedReadStream`, `SqlIdentifier`,
+  `SalesforceErrorMapper.FromResponse(..., sanitize)`.
+- Options `MaxDecompressedResponseBytes`, `AllowInsecureHttp`.
+- Build: SourceLink settings, `AnalysisModeSecurity=All`. SECURITY.md supply-chain section.
+- Tests: 98 new unit attack tests (1003 → 1101) and 22 new E2E attack tests (47 → 69).
+
 ## 2.6.0 — 2026-11-04
 
 Salesforce compliance pass over data types and communication, checked against the official documentation (REST API

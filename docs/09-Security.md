@@ -1,5 +1,7 @@
 # Security
 
+> Threat model, 2.7.0 protections, opt-outs and host-app responsibilities: see [22-Security-Model.md](22-Security-Model.md).
+
 Comprehensive security guidance for SalesforceCore - designed for government-grade deployments requiring the highest levels of data protection and compliance.
 
 ## Table of Contents

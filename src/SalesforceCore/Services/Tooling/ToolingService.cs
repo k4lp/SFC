@@ -218,6 +218,7 @@ public class ToolingService : IToolingService
     /// <inheritdoc/>
     public async Task<string> GetDebugLogContentAsync(string logId, CancellationToken cancellationToken = default)
     {
+        RequireToolingTarget("ApexLog", logId);
         var endpoint = $"{SalesforceConstants.Paths.Tooling}/sobjects/ApexLog/{logId}/Body";
         var bytes = await _client.GetBytesAsync(endpoint, cancellationToken);
         return System.Text.Encoding.UTF8.GetString(bytes);
@@ -265,11 +266,21 @@ public class ToolingService : IToolingService
 
     #endregion
 
+    /// <summary>2.7.0: object names and IDs that go into Tooling URL paths are validated (path injection).</summary>
+    private static void RequireToolingTarget(string objectName, string? id)
+    {
+        if (!SecurityUtils.IsValidObjectName(objectName))
+            throw new ArgumentException($"Invalid Tooling object name: {objectName}", nameof(objectName));
+        if (id != null && !SecurityUtils.IsValidSalesforceId(id))
+            throw new ArgumentException($"Invalid Salesforce ID: '{id}'.", nameof(id));
+    }
+
     #region Generic CRUD
 
     /// <inheritdoc/>
     public async Task<string> CreateAsync(string objectName, object data, CancellationToken cancellationToken = default)
     {
+        RequireToolingTarget(objectName, null);
         var endpoint = $"{SalesforceConstants.Paths.Tooling}/sobjects/{objectName}/";
         var result = await _client.PostAsync<CreateResult>(endpoint, data, cancellationToken);
 
@@ -284,6 +295,7 @@ public class ToolingService : IToolingService
     /// <inheritdoc/>
     public async Task UpdateAsync(string objectName, string id, object data, CancellationToken cancellationToken = default)
     {
+        RequireToolingTarget(objectName, id);
         var endpoint = $"{SalesforceConstants.Paths.Tooling}/sobjects/{objectName}/{id}";
         await _client.PatchAsync(endpoint, data, cancellationToken);
     }
@@ -291,6 +303,7 @@ public class ToolingService : IToolingService
     /// <inheritdoc/>
     public async Task DeleteAsync(string objectName, string id, CancellationToken cancellationToken = default)
     {
+        RequireToolingTarget(objectName, id);
         var endpoint = $"{SalesforceConstants.Paths.Tooling}/sobjects/{objectName}/{id}";
         await _client.DeleteAsync(endpoint, cancellationToken);
     }

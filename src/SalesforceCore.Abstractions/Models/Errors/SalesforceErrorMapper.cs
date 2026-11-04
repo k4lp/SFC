@@ -60,9 +60,25 @@ public static class SalesforceErrorMapper
     /// <param name="retryAfter">Parsed <c>Retry-After</c>, if any.</param>
     /// <param name="maxBodyLength">Raw body is truncated to this many characters (≤ 0 = no truncation).</param>
     public static SalesforceException FromResponse(int status, string? body, string? requestId = null, TimeSpan? retryAfter = null, int maxBodyLength = 2000)
+        => FromResponse(status, body, requestId, retryAfter, maxBodyLength, sanitize: null);
+
+    /// <summary>
+    /// 2.7.0: as <see cref="FromResponse(int, string?, string?, TimeSpan?, int)"/>, with <paramref name="sanitize"/> applied
+    /// to the raw body and every error message before they reach the exception (secret redaction: a hostile proxy or
+    /// server can echo the Authorization header back in an error body).
+    /// </summary>
+    public static SalesforceException FromResponse(int status, string? body, string? requestId, TimeSpan? retryAfter, int maxBodyLength, Func<string, string>? sanitize)
     {
         var raw = Truncate(body, maxBodyLength);
         var errors = ParseErrors(body);
+        if (sanitize != null)
+        {
+            raw = raw == null ? null : sanitize(raw);
+            foreach (var e in errors)
+            {
+                if (!string.IsNullOrEmpty(e.Message)) e.Message = sanitize(e.Message);
+            }
+        }
         SalesforceException ex;
         if (errors.Count > 0)
         {

@@ -4,7 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.3.x   | ✅ security fixes |
+| 2.7.x   | ✅ security fixes |
+| 2.0–2.6 | ⚠️ upgrade to 2.7.0 — report-ID and composite/Tooling path traversal, tokens echoed in exception messages, gzip decompression bomb, SQL identifier quoting, Linux file-name sanitisation (see CHANGELOG 2.7.0) |
+| 1.3.x   | ❌ |
 | 1.2.x   | ⚠️ upgrade to 1.3.0 — stored XSS via file preview, plaintext tokens in DistributedCacheTokenProvider, session-fixation token cache key (see docs/security/SFC_Security_Scan_Report.md) |
 | 1.1.x   | ⚠️ upgrade to 1.2.0 — contains a SOQL escaping injection bug and no instance_url validation |
 | < 1.1   | ❌ |
@@ -28,9 +30,20 @@ Please give us a reasonable window to release a fix before public disclosure. Go
 
 ## Scope
 
-In scope: `SalesforceCore`, `SalesforceCore.AspNetCore`, `SalesforceCore.ModelGenerator` as published from this repository.
+In scope: `SalesforceCore`, `SalesforceCore.Abstractions`, `SalesforceCore.AspNetCore`, `SalesforceCore.SqlServer` and `SalesforceCore.ModelGenerator` (`sf-gen`) as published on this repository's GitHub Releases.
 Out of scope: Salesforce platform vulnerabilities (report to Salesforce), misconfiguration in consuming apps, and the unrelated `SalesforceCore` package on nuget.org that is not published from this repository.
 
 ## Hardening guidance
 
-See the **Security** section of the [README](README.md#security).
+- Threat model, default protections, opt-outs and host-app responsibilities: [docs/22-Security-Model.md](docs/22-Security-Model.md).
+- Detailed guidance: [docs/09-Security.md](docs/09-Security.md) and the **Security** section of the [README](README.md#security).
+
+## Supply chain
+
+- Packages are distributed **only** as GitHub Release assets of this repository; the `SalesforceCore` ID on nuget.org
+  belongs to an unrelated publisher. Pin a `nuget.config` package source mapping so `SalesforceCore*` resolves only
+  from your local feed (see docs/00-Setup-Guide.md).
+- Every restore audits direct and transitive packages (`NuGetAuditMode=all`) and fails on known vulnerabilities.
+- Builds are deterministic with SourceLink (`PublishRepositoryUrl`, `EmbedUntrackedSources`); symbol packages are
+  attached to each release. .NET security analyzers run with `AnalysisModeSecurity=All`.
+- Packages are not Authenticode/NuGet-signed. Compare each download with the SHA-256 checksums in the release notes.

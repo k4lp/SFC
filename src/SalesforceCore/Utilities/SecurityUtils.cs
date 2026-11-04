@@ -438,7 +438,7 @@ public static class SecurityUtils
 
         foreach (var part in parts)
         {
-            if (string.IsNullOrEmpty(part) || !Regex.IsMatch(part, "^[A-Za-z][A-Za-z0-9_]*$"))
+            if (string.IsNullOrEmpty(part) || !Regex.IsMatch(part, "^[A-Za-z][A-Za-z0-9_]*\\z"))
             {
                 return false;
             }
@@ -446,6 +446,14 @@ public static class SecurityUtils
 
         return true;
     }
+
+    private const string PortableInvalidFileNameChars = "\\/:*?\"<>|";
+
+    private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
 
     /// <summary>
     /// Sanitizes a file name for safe storage.
@@ -459,14 +467,27 @@ public static class SecurityUtils
             return "file";
         }
 
-        // Remove invalid characters
+        // 2.7.0: portable rule set. Path.GetInvalidFileNameChars() is only '/' and NUL on Linux, so "..\\x", CR/LF
+        // (Content-Disposition header injection), quotes and ':' survived on Linux hosts.
         var invalidChars = Path.GetInvalidFileNameChars();
-        var sanitized = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+        var sanitized = new string(fileName
+            .Where(c => !invalidChars.Contains(c) && !char.IsControl(c) && PortableInvalidFileNameChars.IndexOf(c) < 0)
+            .ToArray());
+
+        // No leading dots (".." / hidden files), no trailing dots or spaces (Windows strips them).
+        sanitized = sanitized.Trim().TrimStart('.').TrimEnd('.', ' ');
 
         // Ensure not empty
         if (string.IsNullOrWhiteSpace(sanitized))
         {
             return "file";
+        }
+
+        // Windows reserved device names (CON, NUL, COM1...).
+        var stem = Path.GetFileNameWithoutExtension(sanitized);
+        if (ReservedDeviceNames.Contains(stem))
+        {
+            sanitized = "_" + sanitized;
         }
 
         // Limit length

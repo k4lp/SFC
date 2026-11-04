@@ -161,7 +161,7 @@ public class ModelGenerator : IDisposable
 
     private async Task<SObjectDescribe> GetDescribeAsync(string objectName, CancellationToken cancellationToken)
     {
-        if (!System.Text.RegularExpressions.Regex.IsMatch(objectName ?? "", "^[A-Za-z][A-Za-z0-9_]{0,79}$"))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(objectName ?? "", "^[A-Za-z][A-Za-z0-9_]{0,79}\\z"))
             throw new ArgumentException($"Invalid sObject name '{objectName}'.", nameof(objectName));
         return await _client.GetAsync<SObjectDescribe>($"/sobjects/{objectName}/describe", cancellationToken);
     }
@@ -179,7 +179,7 @@ public class ModelGenerator : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static readonly Regex ValidNamespace = new(@"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$", RegexOptions.CultureInvariant);
+    private static readonly Regex ValidNamespace = new(@"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\z", RegexOptions.CultureInvariant);
 
     internal string GenerateClass(SObjectDescribe describe, GeneratorOptions options)
     {

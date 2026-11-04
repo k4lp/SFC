@@ -10,7 +10,7 @@ public static partial class SensitiveDataRedactor
     /// <summary>Placeholder written in place of a redacted value.</summary>
     public const string Redacted = "[REDACTED]";
 
-    [GeneratedRegex(@"(?i)(""?(?:access_token|refresh_token|id_token|client_secret|password|assertion|code_verifier|code|token)""?\s*[:=]\s*""?)([^""&\s,}]+)")]
+    [GeneratedRegex(@"(?i)(""?(?:access_token|refresh_token|id_token|client_secret|password|assertion|code_verifier|(?<![A-Za-z])code|token)""?\s*[:=]\s*""?)([^""&\s,}]+)")]
     private static partial Regex SecretPairRegex();
 
     [GeneratedRegex(@"(?i)(Bearer\s+)[A-Za-z0-9!._\-~+/=]+")]

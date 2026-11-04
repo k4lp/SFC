@@ -285,6 +285,10 @@ public class ReportService : IReportService
         {
             throw new ArgumentException("Instance ID cannot be empty.", nameof(instanceId));
         }
+        if (!SecurityUtils.IsValidSalesforceId(instanceId))
+        {
+            throw new ArgumentException($"Invalid report instance ID: '{instanceId}'.", nameof(instanceId));
+        }
 
         _logger.LogDebug("Getting report instance {ReportId}/{InstanceId}", reportId, instanceId);
 
@@ -406,10 +410,10 @@ public class ReportService : IReportService
             throw new ArgumentException("Report ID cannot be empty.", nameof(reportId));
         }
 
-        // Salesforce report IDs start with "00O"
-        if (!reportId.StartsWith("00O", StringComparison.OrdinalIgnoreCase) && reportId.Length != 15 && reportId.Length != 18)
+        // 2.7.0: this used to accept anything (the check had an empty body), so "00O/../../apexrest/X" reached the URL.
+        if (!SecurityUtils.IsValidSalesforceId(reportId))
         {
-            // Allow anyway but log warning - might be a custom ID format
+            throw new ArgumentException($"Invalid report ID: '{reportId}'. Expected a 15 or 18 character Salesforce ID.", nameof(reportId));
         }
     }
 

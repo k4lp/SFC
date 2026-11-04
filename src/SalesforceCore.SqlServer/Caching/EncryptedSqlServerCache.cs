@@ -700,9 +700,8 @@ public class EncryptedSqlServerCache : IDistributedCache
         var entityType = context.Model.FindEntityType(typeof(EncryptedCacheEntry));
         var tableName = entityType?.GetTableName() ?? "SalesforceEncryptedCacheEntries";
         var schema = entityType?.GetSchema();
-        var qualifiedTable = string.IsNullOrWhiteSpace(schema)
-            ? $"[{tableName}]"
-            : $"[{schema}].[{tableName}]";
+        // 2.7.0: identifiers come from configuration; escape ']' so a hostile TableName/SchemaName cannot break out.
+        var qualifiedTable = SqlIdentifier.Qualify(schema, tableName);
 
         var sql = $@"
 SET NOCOUNT ON;

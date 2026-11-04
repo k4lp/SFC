@@ -200,6 +200,7 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<SalesforceApiUsageHandler>();
         services.TryAddTransient<SalesforceLoggingHandler>();
         services.TryAddTransient<SalesforceCompressionHandler>();
+        services.TryAddTransient<SalesforceTransportSecurityHandler>();
 
         if (!services.Any(d => d.ServiceType == typeof(SalesforceCoreMarker)))
         {
@@ -207,6 +208,7 @@ public static class ServiceCollectionExtensions
 
             var api = services.AddHttpClient<ISalesforceClient, SalesforceClient>(SalesforceHttpClientNames.Api, ConfigureClient);
             api.AddStandardResilienceHandler().Configure((resilience, sp) => ConfigureResilience(resilience, sp.GetRequiredService<IOptions<SalesforceOptions>>().Value));
+            api.AddHttpMessageHandler<SalesforceTransportSecurityHandler>();
             api.AddHttpMessageHandler<SalesforceLoggingHandler>();
             api.AddHttpMessageHandler<SalesforceApiUsageHandler>();
             api.AddHttpMessageHandler<SalesforceCompressionHandler>();
