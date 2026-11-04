@@ -37,12 +37,18 @@ public class SalesforceClient : ISalesforceClient
     /// Options for typed responses. Case-insensitive: Apex REST serialises Apex property names as declared
     /// (usually camelCase), and case-sensitive binding left PascalCase DTO properties silently null.
     /// </summary>
-    internal static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
+    internal static readonly JsonSerializerOptions ReadOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new Mapping.SalesforceEnumJsonConverterFactory() }
+    };
 
     /// <summary>Serializer options used for request bodies.</summary>
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // Enums are picklist values: written as [SalesforceValue] or the member name, never the ordinal.
+        Converters = { new Mapping.SalesforceEnumJsonConverterFactory() }
     };
 
     /// <summary>
@@ -75,7 +81,10 @@ public class SalesforceClient : ISalesforceClient
     public async Task<SalesforceResponse> SendAsync(SalesforceRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using var response = await SendWithRefreshAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+        // UnboundedResponse: read the body from the stream (HttpClient's MaxResponseContentBufferSize only applies when
+        // HttpClient itself buffers, i.e. ResponseContentRead).
+        var completion = request.UnboundedResponse ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead;
+        using var response = await SendWithRefreshAsync(request, completion, cancellationToken).ConfigureAwait(false);
         var content = response.Content == null ? string.Empty : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (request.ThrowOnError && !response.IsSuccessStatusCode)
         {
@@ -130,7 +139,7 @@ public class SalesforceClient : ISalesforceClient
 
     /// <inheritdoc/>
     public async Task<string> GetRawAsync(string endpoint, string acceptHeader, CancellationToken cancellationToken = default)
-        => (await SendAsync(new SalesforceRequest(HttpMethod.Get, endpoint) { Accept = acceptHeader }, cancellationToken).ConfigureAwait(false)).Content;
+        => (await SendAsync(new SalesforceRequest(HttpMethod.Get, endpoint) { Accept = acceptHeader, UnboundedResponse = true }, cancellationToken).ConfigureAwait(false)).Content;
 
     /// <inheritdoc/>
     public async Task<byte[]> GetBytesAsync(string endpoint, CancellationToken cancellationToken = default)

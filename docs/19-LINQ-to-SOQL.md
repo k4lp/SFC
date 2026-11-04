@@ -207,8 +207,10 @@ foreach (var r in rows)
 * `.Rollup()` / `.Cube()` give `GROUP BY ROLLUP(a, b)` / `CUBE(a, b)`. Subtotal rows have null keys.
 * `ToAggregateSoql(g => …)` returns the SOQL without running it.
 * `AggregateResult.Get<T>` converts numbers to `int`, `long`, `decimal`, `double` and their nullable forms, parses
-  enums and dates, and returns `default` if a value can't be converted. *2.2 fix: values used to stay wrapped as
-  `JsonNode`, so `Get<decimal>` returned 0.*
+  enums (by `[SalesforceValue]` or member name) and dates, and returns `default` if a non-enum value can't be
+  converted. *2.2 fix: values used to stay wrapped as `JsonNode`, so `Get<decimal>` returned 0.* *2.5 fix: enum keys
+  (`DistinctAsync`, `GroupBy`, `Min`/`Max`) used `Enum.Parse` and silently returned the first member for values such as
+  "Closed Won"; an enum value matching no member now throws `InvalidCastException`.*
 * `GroupByFieldAsync(selector)` and `GroupByWithAggregatesAsync(selector, ct, specs…)` (pre-2.2 APIs) remain.
 
 ## Relationships

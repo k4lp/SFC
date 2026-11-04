@@ -799,7 +799,7 @@ public static class SalesforceMapper
 
     #region Enum Mapping Helpers
 
-    private static string GetEnumSalesforceValue(Enum value)
+    internal static string GetEnumSalesforceValue(Enum value)
     {
         var map = GetEnumMap(value.GetType());
         if (map.EnumToValue.TryGetValue(value, out var mapped))
@@ -810,7 +810,7 @@ public static class SalesforceMapper
         return value.ToString();
     }
 
-    private static object ParseEnumValue(string rawValue, Type enumType)
+    internal static object ParseEnumValue(string rawValue, Type enumType)
     {
         var map = GetEnumMap(enumType);
         if (map.ValueToEnum.TryGetValue(rawValue, out var mapped))

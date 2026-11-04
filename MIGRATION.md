@@ -1,4 +1,20 @@
-# Migrating to SalesforceCore 2.2 / 2.3 / 2.4
+# Migrating to SalesforceCore 2.2 / 2.3 / 2.4 / 2.5
+
+<a id="250"></a>
+## 2.5.0
+
+No API removals; two additive APIs (`SalesforceRequest.UnboundedResponse`, `SalesforceEnumJsonConverterFactory`).
+Behaviour changes:
+
+| Change | What to do |
+|---|---|
+| Enums in request bodies (record dictionaries, Apex DTOs) are written as the `[SalesforceValue]`/member name string, not the ordinal | If an Apex endpoint expects an integer, put `[JsonConverter(typeof(JsonNumberEnumConverter<T>))]` on that property. Enum types with their own `[JsonConverter]` are unchanged. |
+| Bulk CSV writes enums as the `[SalesforceValue]` instead of the member name | Nothing, unless you relied on the member name. |
+| `AggregateResult.Get<TEnum>` throws `InvalidCastException` for a value that matches no enum member (it returned the first member) | Add the missing member or `[SalesforceValue]`, or read the key as `string`. |
+| `IBulkService.WaitForCompletionAsync` throws `OperationCanceledException` when cancelled (it returned the unfinished job) | Catch the exception instead of checking `IsComplete`. |
+| Cancelled bulk ingest/query jobs are aborted server-side | Nothing. |
+| `BatchCreate/Update/DeleteAsync` below `bulkThreshold` but above 200 records make several 200-record calls | Nothing; previously the call failed. |
+| Cache stampede locks are process-wide and per key | Nothing. A factory must still not call `GetOrCreateAsync` for its own key. |
 
 <a id="240"></a>
 ## 2.4.0

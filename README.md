@@ -774,10 +774,10 @@ Add this `nuget.config` beside your `.sln`/`.csproj`. It keeps nuget.org for nor
 ```
 
 ```bash
-dotnet add package SalesforceCore --version 2.4.0
-dotnet add package SalesforceCore.AspNetCore --version 2.4.0
-dotnet add package SalesforceCore.SqlServer --version 2.4.0   # optional
-dotnet tool install --global SalesforceCore.ModelGenerator --version 2.4.0
+dotnet add package SalesforceCore --version 2.5.0
+dotnet add package SalesforceCore.AspNetCore --version 2.5.0
+dotnet add package SalesforceCore.SqlServer --version 2.5.0   # optional
+dotnet tool install --global SalesforceCore.ModelGenerator --version 2.5.0
 ```
 
 Don't pass `--source` / `--add-source`: `--source` replaces your configured feeds (so dependencies like CsvHelper can't restore), and `dotnet tool install` rejects `--add-source` when package source mapping is on. The `nuget.config` above handles both.

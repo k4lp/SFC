@@ -526,20 +526,13 @@ builder.Services.AddSalesforceCore(builder.Configuration);
 ### Cache Stampede Prevention
 
 SalesforceCore implements a two-level strategy to prevent cache stampede:
-- Local striped locks prevent duplicate work within a single process.
+- Process-wide per-key locks prevent duplicate work within a single process (2.5.0; nested calls for other keys are safe).
 - When an `IDistributedLockProvider` is available, a distributed lock prevents stampede across servers.
   - When using the encrypted SQL Server cache, SQL application locks (`sp_getapplock`) are used for cross-node coordination.
 
 ```csharp
-// 32 lock stripes for fine-grained concurrency
-private readonly SemaphoreSlim[] _lockStripes = new SemaphoreSlim[32];
-
-// Hash-based stripe selection
-var lockIndex = (uint)key.GetHashCode() & 0x1F;
-var stripeLock = _lockStripes[lockIndex];
-
-await stripeLock.WaitAsync(cancellationToken);
-try
+// One lock per key, shared by every scope in the process
+using (await KeyLocks.AcquireAsync(fullKey, cancellationToken))
 {
     // Check cache again (double-checked locking)
     var cached = await _cache.GetAsync(key);
@@ -549,10 +542,6 @@ try
     var result = await factory();
     await _cache.SetAsync(key, result);
     return result;
-}
-finally
-{
-    stripeLock.Release();
 }
 ```
 

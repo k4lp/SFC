@@ -11,11 +11,9 @@ namespace SalesforceCore.Services.Caching;
 /// This is the default cache provider when UseDistributedCache is false.
 /// </summary>
 /// <remarks>
-/// Thread-safety is achieved using a striped lock array pattern:
-/// - Pre-allocated fixed array of semaphores (no memory growth over time)
-/// - Keys are mapped to locks via hash code (consistent mapping)
-/// - Different keys may share a lock (striping), but same key always gets same lock
-/// - This is ~2x faster and uses ~6x less memory than per-key ConcurrentDictionary approach
+/// Thread-safety is achieved with process-wide per-key locks (KeyedAsyncLock):
+/// - A lock exists only while a key is being created or awaited (no growth over time)
+/// - Only callers of the same key wait for each other, so nested GetOrCreateAsync calls cannot deadlock
 /// </remarks>
 public class MemoryCacheProvider : ICacheProvider
 {
@@ -24,14 +22,8 @@ public class MemoryCacheProvider : ICacheProvider
     private readonly ILogger<MemoryCacheProvider> _logger;
     private readonly string _keyPrefix;
 
-    /// <summary>
-    /// Striped lock array for cache stampede prevention.
-    /// Size is a power of 2 for efficient modulo via bitwise AND.
-    /// 32 stripes provides good concurrency while limiting memory footprint.
-    /// </summary>
-    private const int LockStripesCount = 32;
-    private const int LockStripesMask = LockStripesCount - 1; // For fast modulo: hash & mask
-    private readonly SemaphoreSlim[] _lockStripes;
+    /// <summary>Process-wide per-key locks for stampede prevention (see <see cref="KeyedAsyncLock"/>).</summary>
+    internal static readonly KeyedAsyncLock KeyLocks = new();
 
     /// <summary>
     /// Creates a new MemoryCacheProvider.
@@ -45,24 +37,6 @@ public class MemoryCacheProvider : ICacheProvider
         _options = options.Value;
         _logger = logger;
         _keyPrefix = _options.CacheKeyPrefix;
-
-        // Pre-allocate all lock stripes - these live for the lifetime of the provider
-        _lockStripes = new SemaphoreSlim[LockStripesCount];
-        for (var i = 0; i < LockStripesCount; i++)
-        {
-            _lockStripes[i] = new SemaphoreSlim(1, 1);
-        }
-    }
-
-    /// <summary>
-    /// Gets the lock stripe for a given key using consistent hashing.
-    /// </summary>
-    private SemaphoreSlim GetLockForKey(string key)
-    {
-        // Use unsigned to handle negative hash codes correctly
-        var hash = (uint)key.GetHashCode();
-        var index = (int)(hash & LockStripesMask);
-        return _lockStripes[index];
     }
 
     /// <inheritdoc/>
@@ -121,10 +95,7 @@ public class MemoryCacheProvider : ICacheProvider
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Uses striped locking to prevent cache stampede while maintaining high concurrency.
-    /// The lock stripe is determined by the key's hash code, so the same key always
-    /// maps to the same lock. Different keys may share a lock (acceptable trade-off
-    /// for bounded memory usage and no cleanup complexity).
+    /// Uses a process-wide per-key lock to prevent cache stampede; factories may safely call GetOrCreateAsync for other keys.
     /// </remarks>
     public async Task<T?> GetOrCreateAsync<T>(
         string key,
@@ -144,11 +115,8 @@ public class MemoryCacheProvider : ICacheProvider
             return cached;
         }
 
-        // Cache miss - acquire striped lock to prevent cache stampede
-        var stripeLock = GetLockForKey(fullKey);
-
-        await stripeLock.WaitAsync(cancellationToken);
-        try
+        // Cache miss - acquire the per-key lock to prevent cache stampede
+        using (await KeyLocks.AcquireAsync(fullKey, cancellationToken).ConfigureAwait(false))
         {
             // Double-check after acquiring lock (another thread may have populated the cache)
             if (_cache.TryGetValue(fullKey, out cached))
@@ -178,10 +146,6 @@ public class MemoryCacheProvider : ICacheProvider
             }
 
             return value;
-        }
-        finally
-        {
-            stripeLock.Release();
         }
     }
 

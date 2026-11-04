@@ -53,6 +53,14 @@ public sealed class FakeSalesforce : IAsyncDisposable
     public string? LastAcceptEncoding;
     public string? LastGrantType;
     public Func<JsonObject, JsonObject>? CompositeResponder;
+    /// <summary>Bodies of every sObject Collections call (POST/PATCH) and the id lists of DELETE calls.</summary>
+    public ConcurrentQueue<int> CollectionCallSizes { get; } = new();
+    public ConcurrentQueue<string> AbortedJobs { get; } = new();
+    public string QueryJobState = "JobComplete";
+    public TimeSpan DescribeDelay = TimeSpan.Zero;
+    /// <summary>Delay applied once to the next GET /query (models one slow attempt).</summary>
+    public TimeSpan QueryDelayOnce = TimeSpan.Zero;
+    public ConcurrentQueue<string> UpsertUrls { get; } = new();
 
     public HttpMessageHandler Handler => _app.GetTestServer().CreateHandler();
 
@@ -190,6 +198,7 @@ public sealed class FakeSalesforce : IAsyncDisposable
             var job = jobs[id];
             var requested = req["state"]!.GetValue<string>();
             job["state"] = requested == "UploadComplete" ? BulkFinalState : requested;
+            if (requested == "Aborted") AbortedJobs.Enqueue(id);
             if (requested == "UploadComplete")
             {
                 var (s, f, processed, failed) = BulkResultsFor?.Invoke(LastBulkUpload ?? "") ?? ("sf__Id,sf__Created\n", "sf__Id,sf__Error\n", 0, 0);
@@ -206,7 +215,13 @@ public sealed class FakeSalesforce : IAsyncDisposable
 
         // ---- Bulk 2.0 query with Sforce-Locator paging
         app.MapPost(v + "/jobs/query", ctx => Json(ctx, new JsonObject { ["id"] = "750000000000QQQ", ["state"] = "UploadComplete", ["operation"] = "query" }));
-        app.MapGet(v + "/jobs/query/750000000000QQQ", ctx => Json(ctx, new JsonObject { ["id"] = "750000000000QQQ", ["state"] = "JobComplete", ["operation"] = "query", ["numberRecordsProcessed"] = 2 }));
+        app.MapGet(v + "/jobs/query/750000000000QQQ", ctx => Json(ctx, new JsonObject { ["id"] = "750000000000QQQ", ["state"] = QueryJobState, ["operation"] = "query", ["numberRecordsProcessed"] = 2 }));
+        app.MapMethods(v + "/jobs/query/{id}", new[] { "PATCH" }, async (HttpContext ctx, string id) =>
+        {
+            var req = (JsonObject)(await JsonNode.ParseAsync(ctx.Request.Body))!;
+            if (req["state"]?.GetValue<string>() == "Aborted") { AbortedJobs.Enqueue(id); QueryJobState = "Aborted"; }
+            await Json(ctx, new JsonObject { ["id"] = id, ["state"] = QueryJobState });
+        });
         app.MapGet(v + "/jobs/query/750000000000QQQ/results", async ctx =>
         {
             var locator = ctx.Request.Query["locator"].ToString();
@@ -225,6 +240,7 @@ public sealed class FakeSalesforce : IAsyncDisposable
         app.MapGet(v + "/sobjects/{obj}/describe", async (HttpContext ctx, string obj) =>
         {
             Interlocked.Increment(ref DescribeRequests);
+            if (DescribeDelay > TimeSpan.Zero) await Task.Delay(DescribeDelay);
             if (DescribeFailures.TryDequeue(out var st)) { await Error(ctx, st, st == 404 ? "NOT_FOUND" : "SERVER_UNAVAILABLE", "describe failed"); return; }
             if (obj != "Account") { await Error(ctx, 404, "NOT_FOUND", "The requested resource does not exist"); return; }
             await Json(ctx, Describe());
@@ -245,10 +261,44 @@ public sealed class FakeSalesforce : IAsyncDisposable
                 _ => ""
             });
         });
+        async Task Collections(HttpContext ctx)
+        {
+            JsonArray results;
+            if (ctx.Request.Method == "DELETE")
+            {
+                var ids = ctx.Request.Query["ids"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries);
+                CollectionCallSizes.Enqueue(ids.Length);
+                if (ids.Length > 200) { await Error(ctx, 400, "EXCEEDED_ID_LIMIT", "Too many ids: limit 200"); return; }
+                results = new JsonArray(ids.Select(id => (JsonNode)Result(id, id.StartsWith("bad"))).ToArray());
+            }
+            else
+            {
+                var body = (JsonObject)(await JsonNode.ParseAsync(ctx.Request.Body))!;
+                LastCompositeBody = body.ToJsonString();
+                var recs = body["records"]!.AsArray();
+                CollectionCallSizes.Enqueue(recs.Count);
+                if (recs.Count > 200) { await Error(ctx, 400, "EXCEEDED_ID_LIMIT", "record limit is 200"); return; }
+                results = new JsonArray(recs.Select(r =>
+                {
+                    var bad = r!["Name"]?.ToString().StartsWith("bad") == true;
+                    var id = r["Id"]?.ToString() ?? "001" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+                    if (!bad) Records[id] = (JsonObject)r.DeepClone();
+                    return (JsonNode)Result(id, bad);
+                }).ToArray());
+            }
+            await Json(ctx, results);
+
+            static JsonObject Result(string id, bool bad) => bad
+                ? new JsonObject { ["success"] = false, ["errors"] = new JsonArray(new JsonObject { ["statusCode"] = "FIELD_CUSTOM_VALIDATION_EXCEPTION", ["message"] = "bad record", ["fields"] = new JsonArray() }) }
+                : new JsonObject { ["id"] = id, ["success"] = true, ["errors"] = new JsonArray() };
+        }
+        app.MapMethods(v + "/composite/sobjects", new[] { "POST", "PATCH", "DELETE" }, Collections);
+
         app.MapPost(v + "/composite", async ctx =>
         {
             var body = (JsonObject)(await JsonNode.ParseAsync(ctx.Request.Body))!;
             LastCompositeBody = body.ToJsonString();
+            foreach (var sub in body["compositeRequest"]?.AsArray() ?? new JsonArray()) UpsertUrls.Enqueue(sub!["url"]!.GetValue<string>());
             var resp = CompositeResponder?.Invoke(body) ?? DefaultComposite(body);
             await Json(ctx, resp);
         });
@@ -296,7 +346,14 @@ public sealed class FakeSalesforce : IAsyncDisposable
         return ctx.Response.WriteAsync(csv);
     }
 
-    private Task QueryPage(HttpContext ctx, int start)
+    private async Task QueryPage(HttpContext ctx, int start)
+    {
+        var delay = QueryDelayOnce;
+        if (delay > TimeSpan.Zero) { QueryDelayOnce = TimeSpan.Zero; await Task.Delay(delay, ctx.RequestAborted); }
+        await QueryPageCore(ctx, start);
+    }
+
+    private Task QueryPageCore(HttpContext ctx, int start)
     {
         Interlocked.Increment(ref QueryRequests);
         if (QueryFailures.TryDequeue(out var failure))

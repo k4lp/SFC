@@ -266,7 +266,10 @@ public static class ServiceCollectionExtensions
                     or HttpStatusCode.GatewayTimeout
                     or HttpStatusCode.RequestTimeout
                     or HttpStatusCode.TooManyRequests
-                || args.Outcome.Exception is HttpRequestException);
+                || args.Outcome.Exception is HttpRequestException
+                // A per-attempt timeout on an idempotent request is retried, as the standard handler does; the custom
+                // predicate (2.4.0 and earlier) dropped this, so one slow attempt failed the whole GET.
+                || args.Outcome.Exception is Polly.Timeout.TimeoutRejectedException);
         };
         resilienceOptions.Retry.MaxRetryAttempts = Math.Max(0, options.MaxRetries) == 0 ? 1 : options.MaxRetries;
         if (options.MaxRetries == 0)

@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.5.0 — 2026-11-04
+
+Interaction audit of the 2.1–2.4 fixes: each fix was exercised together with the features it touches (retries x
+tokens x idempotency, bulk x paging x size x gzip x cancellation, batching x chunk limits x failure indexes x culture,
+caches x layout x concurrency, LINQ x enums). New scenario suites: `tests/SalesforceCore.E2E/Round4InteractionE2ETests.cs`
+(12) and `tests/SalesforceCore.Tests/V25/InteractionScenarioTests.cs` (10); all 12 E2E scenarios fail on 2.4.0. See
+[MIGRATION.md](MIGRATION.md#250).
+
+### Fixed
+- **Layout/permission descriptors could hang forever.** Cache stampede locks were 32 stripes picked by
+  `key.GetHashCode()`; a layout or permission factory loads describes through the same cache, and when the inner key
+  hashed to the outer key's stripe the second wait never completed. String hashes are randomised per process, so it
+  hung on some starts only (reproduced: 40 forms, hang). Locks are now per key, so nested `GetOrCreateAsync` is safe.
+- **Cache single-flight did not work across requests.** The cache provider is scoped, so each request scope had its own
+  locks and N concurrent requests described the same object N times. Locks are now process-wide (1 describe for 10 scopes).
+- **Bulk results over 10 MB failed** (query pages, success/failure files): they were buffered under
+  `MaxResponseContentBufferSize`. Because an ingest job had already committed, a caller that retried on the error
+  duplicated inserts. CSV results are now streamed (`SalesforceRequest.UnboundedResponse`); works with gzip and a
+  mid-flight token refresh.
+- **Cancelling a bulk job left it running.** The cleanup abort was sent with the caller's (already cancelled) token, so
+  it never left the process; bulk query had no cleanup at all. Aborts now use their own 30 s token. A job that already
+  completed is no longer "aborted" when reading its results fails.
+- **`WaitForCompletionAsync` returned the still-running job on cancellation**, which Insert/Update/Upsert/Delete then
+  reported as an empty successful result. It now throws `OperationCanceledException`.
+- **Enums in record dictionaries were written as ordinals** (`["StageName"] = Stage.ClosedWon` sent `1`, which an
+  unrestricted picklist stores as "1") on REST/composite, and as the member name (`ClosedWon`) in Bulk CSV, while LINQ
+  filters send `'Closed Won'`. Both now send the `[SalesforceValue]` (or member name). Typed responses read picklist
+  strings into enums.
+- **LINQ enum aggregates returned the wrong value.** `DistinctAsync`/`MinAsync`/`MaxAsync`/`GroupBy` keys used
+  `Enum.Parse`, which failed on "Closed Won" and silently returned the first member. They now map `[SalesforceValue]`;
+  an unknown picklist value throws `InvalidCastException`.
+- **sObject Collections over 200 records failed.** `bulkThreshold` is caller-chosen; above 200, `BatchCreate/Update/DeleteAsync`
+  sent 201+ records in one call and Salesforce rejected all of them. Calls are chunked by 200; failure indexes stay
+  relative to the input.
+- **Composite upsert swallowed cancellation**: it was recorded as per-record failures and the remaining chunks were
+  still attempted. It now propagates.
+- **Composite upsert external ids used the thread culture** (`1234.5` sent as `1234,5` under de-DE).
+- **A per-attempt timeout on a GET was not retried**: the custom retry predicate dropped the standard handler's
+  `TimeoutRejectedException` case. Idempotent requests retry it again; POST/PATCH still never replay.
+- Bulk CSV: `NaN`, infinity and doubles beyond decimal range throw `ArgumentException` instead of `OverflowException`.
+
+### Added
+- `SalesforceRequest.UnboundedResponse` (read the body from the stream, bypassing `MaxResponseContentBufferSize`).
+- `SalesforceEnumJsonConverterFactory` (picklist-value enum JSON), used by `SalesforceClient` request/response options.
+
 ## 2.4.0 — 2026-11-02
 
 Second end-to-end round against the fake Salesforce (`tests/SalesforceCore.E2E`, now 30 tests). See
