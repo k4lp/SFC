@@ -720,7 +720,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             dropNullValues: false,
             excludedFields: excludedFields);
 
-        var endpoint = $"/sobjects/{sObject}/{externalIdField}/{Uri.EscapeDataString(externalIdValue)}";
+        var endpoint = $"/sobjects/{sObject}/{externalIdField}/{SalesforcePathGuard.Segment(externalIdValue, nameof(externalIdValue))}";
 
         try
         {
@@ -1064,7 +1064,7 @@ public class DataService : IDataService, ISoqlDeletedRowsQueryExecutor
             compositeRequest.CompositeSubRequests.Add(new Models.Data.CompositeSubRequest
             {
                 Method = "PATCH",
-                Url = $"/services/data/{_options.ApiVersion}/sobjects/{sObject}/{externalIdField}/{Uri.EscapeDataString(extId)}",
+                Url = $"/services/data/{_options.ApiVersion}/sobjects/{sObject}/{externalIdField}/{SalesforcePathGuard.Segment(extId, nameof(extId))}",
                 ReferenceId = refId,
                 Body = payload
             });

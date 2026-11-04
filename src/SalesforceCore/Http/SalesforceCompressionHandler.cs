@@ -39,7 +39,7 @@ public sealed class SalesforceCompressionHandler : DelegatingHandler
 
         var original = response.Content;
         var compressed = await original.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        var decompressed = new StreamContent(new GZipStream(compressed, CompressionMode.Decompress));
+        var decompressed = new StreamContent(new SizeLimitedReadStream(new GZipStream(compressed, CompressionMode.Decompress), _options.CurrentValue.MaxDecompressedResponseBytes));
         foreach (var header in original.Headers)
         {
             if (header.Key.Equals("Content-Encoding", StringComparison.OrdinalIgnoreCase) ||

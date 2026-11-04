@@ -8,7 +8,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>SalesforceCore</PackageId>
-    <Version>2.6.0</Version>
+    <Version>2.7.0</Version>
     <Authors>SalesforceCore Contributors</Authors>
     <Company>SalesforceCore</Company>
     <Product>SalesforceCore</Product>

@@ -450,17 +450,17 @@ public static class SalesforceConstants
         /// <summary>
         /// Pattern for validating Salesforce 15 or 18 character IDs.
         /// </summary>
-        public const string SalesforceIdPattern = @"^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$";
+        public const string SalesforceIdPattern = @"^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?\z";
 
         /// <summary>
         /// Pattern for validating sObject API names.
         /// </summary>
-        public const string SObjectNamePattern = @"^[a-zA-Z][a-zA-Z0-9_]*(__c)?$";
+        public const string SObjectNamePattern = @"^[a-zA-Z][a-zA-Z0-9_]*(__c)?\z";
 
         /// <summary>
         /// Pattern for validating field API names.
         /// </summary>
-        public const string FieldNamePattern = @"^[a-zA-Z][a-zA-Z0-9_]*(__c|__r)?$";
+        public const string FieldNamePattern = @"^[a-zA-Z][a-zA-Z0-9_]*(__c|__r)?\z";
     }
 
     #endregion

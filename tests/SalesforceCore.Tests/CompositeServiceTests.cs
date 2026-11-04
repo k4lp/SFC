@@ -240,8 +240,8 @@ public class CompositeServiceTests
         var results = await builder
             .Create("Account", new Dictionary<string, object?> { { "Name", "Test 1" } })
             .Create("Account", new Dictionary<string, object?> { { "Name", "Test 2" } })
-            .Update("Account", "001xxx", new Dictionary<string, object?> { { "Name", "Updated" } })
-            .Delete("Account", "001yyy")
+            .Update("Account", "001000000000001", new Dictionary<string, object?> { { "Name", "Updated" } })
+            .Delete("Account", "001000000000002")
             .Query("SELECT Id FROM Account LIMIT 1")
             .ExecuteAsync();
 

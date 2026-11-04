@@ -25,6 +25,10 @@ public sealed class FakeSalesforce : IAsyncDisposable
     public int TokenRequests;
     public TimeSpan TokenDelay = TimeSpan.Zero;
     public ConcurrentQueue<string> Requests { get; } = new();
+    /// <summary>Hostile-server scenarios: instance_url returned by the token endpoint.</summary>
+    public string? TokenInstanceUrlOverride;
+    /// <summary>Hostile-server scenarios: return true after writing a response to short-circuit normal routing.</summary>
+    public Func<HttpContext, Task<bool>>? Intercept;
     /// <summary>Sforce-* request headers per request ("METHOD path" -> header -> value).</summary>
     public ConcurrentQueue<(string Line, Dictionary<string, string> Headers)> SforceHeaders { get; } = new();
     public JsonObject? LastIngestJobRequest;
@@ -108,6 +112,7 @@ public sealed class FakeSalesforce : IAsyncDisposable
                 .Where(h => h.Key.StartsWith("Sforce-", StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(h => h.Key, h => h.Value.ToString(), StringComparer.OrdinalIgnoreCase)));
             LastAcceptEncoding = ctx.Request.Headers.AcceptEncoding.ToString();
+            if (Intercept != null && !ctx.Request.Path.StartsWithSegments("/services/oauth2") && await Intercept(ctx)) return;
             if (GzipResponses && LastAcceptEncoding.Contains("gzip") && !ctx.Request.Path.StartsWithSegments("/services/oauth2"))
             {
                 var original = ctx.Response.Body;
@@ -151,7 +156,7 @@ public sealed class FakeSalesforce : IAsyncDisposable
             await Json(ctx, new JsonObject
             {
                 ["access_token"] = CurrentToken,
-                ["instance_url"] = InstanceUrl,
+                ["instance_url"] = TokenInstanceUrlOverride ?? InstanceUrl,
                 ["token_type"] = "Bearer",
                 ["issued_at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()
             });

@@ -464,6 +464,10 @@ public class SchemaService : ISchemaService
 
                 try
                 {
+                    if (!SecurityUtils.IsValidSalesforceId(recordTypeId) || !SecurityUtils.IsValidFieldName(fieldName) || fieldName.Contains('.'))
+                    {
+                        throw new ArgumentException($"Invalid record type ID or field name for picklist lookup: '{recordTypeId}', '{fieldName}'.");
+                    }
                     var endpoint = $"ui-api/object-info/{sObject}/picklist-values/{recordTypeId}/{fieldName}";
                     var doc = await _client.GetAsync<JsonDocument>(endpoint, cancellationToken);
                     if (doc != null && doc.RootElement.ValueKind == JsonValueKind.Object &&

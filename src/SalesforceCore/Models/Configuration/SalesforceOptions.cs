@@ -62,6 +62,18 @@ public class SalesforceOptions
     public bool EnableResponseCompression { get; set; } = false;
 
     /// <summary>
+    /// 2.7.0: upper bound, in bytes, on a gzip response after decompression (decompression-bomb guard). Applies to
+    /// streamed reads too (bulk results, file downloads). Default 1 GiB; 0 or less disables the cap.
+    /// </summary>
+    public long MaxDecompressedResponseBytes { get; set; } = 1L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// 2.7.0: allow access tokens to be sent over plain HTTP. Off by default: every authenticated Salesforce call must
+    /// use HTTPS. Turn on only for a local test proxy; never in production.
+    /// </summary>
+    public bool AllowInsecureHttp { get; set; } = false;
+
+    /// <summary>
     /// HTTP request timeout.
     /// Default: 30 seconds
     /// </summary>

@@ -774,10 +774,10 @@ Add this `nuget.config` beside your `.sln`/`.csproj`. It keeps nuget.org for nor
 ```
 
 ```bash
-dotnet add package SalesforceCore --version 2.6.0
-dotnet add package SalesforceCore.AspNetCore --version 2.6.0
-dotnet add package SalesforceCore.SqlServer --version 2.6.0   # optional
-dotnet tool install --global SalesforceCore.ModelGenerator --version 2.6.0
+dotnet add package SalesforceCore --version 2.7.0
+dotnet add package SalesforceCore.AspNetCore --version 2.7.0
+dotnet add package SalesforceCore.SqlServer --version 2.7.0   # optional
+dotnet tool install --global SalesforceCore.ModelGenerator --version 2.7.0
 ```
 
 Don't pass `--source` / `--add-source`: `--source` replaces your configured feeds (so dependencies like CsvHelper can't restore), and `dotnet tool install` rejects `--add-source` when package source mapping is on. The `nuget.config` above handles both.
@@ -1538,6 +1538,8 @@ Scaffolds a complete form based on model metadata:
 ---
 
 ## Security
+
+Threat model and default protections (2.7.0): [docs/22-Security-Model.md](docs/22-Security-Model.md). Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 SalesforceCore 2.0.0 ships with secure defaults (see `docs/security/SFC_Security_Scan_Report.md` for the 1.3.0 audit; 2.0 removes access gating, keeps all attacker-facing protections and adds path validation for Apex/Bulk/nextRecordsUrl). Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 

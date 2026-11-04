@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using SalesforceCore.Models.Configuration;
 using SalesforceCore.Models.Data;
 using SalesforceCore.Models.Errors;
+using SalesforceCore.Security;
 using SalesforceCore.Utilities;
 
 namespace SalesforceCore.Services.Core;
@@ -100,6 +101,15 @@ public class CompositeService : ICompositeService
 
     #endregion
 
+    /// <summary>2.7.0: record IDs placed in composite sub-request URLs must be 15/18-character Salesforce IDs.</summary>
+    private static void RequireRecordId(string? id)
+    {
+        if (!SecurityUtils.IsValidSalesforceId(id))
+        {
+            throw new ArgumentException($"Invalid Salesforce record ID: '{id}'.", nameof(id));
+        }
+    }
+
     #region Standard Composite API
 
     /// <inheritdoc/>
@@ -115,6 +125,12 @@ public class CompositeService : ICompositeService
             throw new SalesforceException(
                 $"Composite request exceeds maximum of {SalesforceConstants.Composite.MaxSubRequestsPerBatch} sub-requests. " +
                 $"Current count: {request.CompositeSubRequests.Count}");
+        }
+
+        // 2.7.0: sub-request URLs are resolved by Salesforce, not by SalesforceClient.BuildPath, so guard them here too.
+        foreach (var sub in request.CompositeSubRequests)
+        {
+            SalesforcePathGuard.Ensure(sub.Url, nameof(request));
         }
 
         _logger.LogDebug("Executing composite request with {Count} sub-requests", request.CompositeSubRequests.Count);
@@ -228,6 +244,7 @@ public class CompositeService : ICompositeService
                 }
 
                 var id = idValue.ToString()!;
+                RequireRecordId(id);
                 var updateData = record.Where(kvp => kvp.Key != "Id")
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
@@ -282,6 +299,7 @@ public class CompositeService : ICompositeService
             var index = 0;
             foreach (var id in batch)
             {
+                RequireRecordId(id);
                 var referenceId = $"delete_{index}";
                 request.CompositeSubRequests.Add(new CompositeSubRequest
                 {
@@ -351,7 +369,7 @@ public class CompositeService : ICompositeService
                 request.CompositeSubRequests.Add(new CompositeSubRequest
                 {
                     Method = "PATCH",
-                    Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}/{externalIdField}/{UrlUtils.Escape(externalId)}",
+                    Url = $"{SalesforceConstants.Paths.DataPath}{_options.ApiVersion}{SalesforceConstants.Paths.SObjects}/{objectName}/{externalIdField}/{SalesforcePathGuard.Segment(externalId, nameof(records))}",
                     ReferenceId = referenceId,
                     Body = Mapping.SalesforceWireFormat.RecordBody(upsertData)
                 });
@@ -434,8 +452,18 @@ public class CompositeService : ICompositeService
 
         public int Count => _request.CompositeSubRequests.Count;
 
+        private static void RequireBuilderTarget(string objectName, string? id)
+        {
+            if (!SecurityUtils.IsValidObjectName(objectName))
+                throw new ArgumentException($"Invalid object name: {objectName}", nameof(objectName));
+            // Composite references such as @{newAccount.id} are legitimate IDs here.
+            if (id != null && !(SecurityUtils.IsValidSalesforceId(id) || System.Text.RegularExpressions.Regex.IsMatch(id, @"^@\{[A-Za-z0-9_]+(\.[A-Za-z0-9_\[\]]+)*\}\z")))
+                throw new ArgumentException($"Invalid record ID or composite reference: '{id}'.", nameof(id));
+        }
+
         public ICompositeBatchBuilder Create(string objectName, Dictionary<string, object?> data, string? referenceId = null)
         {
+            RequireBuilderTarget(objectName, null);
             referenceId ??= $"ref_{_referenceCounter++}";
             _request.CompositeSubRequests.Add(new CompositeSubRequest
             {
@@ -449,6 +477,7 @@ public class CompositeService : ICompositeService
 
         public ICompositeBatchBuilder Update(string objectName, string id, Dictionary<string, object?> data, string? referenceId = null)
         {
+            RequireBuilderTarget(objectName, id);
             referenceId ??= $"ref_{_referenceCounter++}";
             _request.CompositeSubRequests.Add(new CompositeSubRequest
             {
@@ -462,6 +491,7 @@ public class CompositeService : ICompositeService
 
         public ICompositeBatchBuilder Delete(string objectName, string id, string? referenceId = null)
         {
+            RequireBuilderTarget(objectName, id);
             referenceId ??= $"ref_{_referenceCounter++}";
             _request.CompositeSubRequests.Add(new CompositeSubRequest
             {

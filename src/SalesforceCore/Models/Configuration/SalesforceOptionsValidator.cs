@@ -21,6 +21,19 @@ internal sealed class SalesforceOptionsValidator : IValidateOptions<SalesforceOp
             failures.Add($"Salesforce:Domain is not a trusted Salesforce login URL: {domainReason}");
         }
 
+        // 2.7.0: ClientName goes into the Sforce-Call-Options header; CR/LF there would be header injection.
+        if (!string.IsNullOrEmpty(options.ClientName) && options.ClientName.Any(char.IsControl))
+        {
+            failures.Add("Salesforce:ClientName must not contain control characters (CR, LF...).");
+        }
+
+        // 2.7.0: the login URL always carries client secrets, refresh tokens or JWT assertions: HTTPS only.
+        if (!options.AllowInsecureHttp && !string.IsNullOrWhiteSpace(options.Domain) &&
+            !options.Domain.Trim().StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("Salesforce:Domain must be an https:// URL (set Salesforce:AllowInsecureHttp only for local test proxies).");
+        }
+
         if (!SalesforceApiVersion.TryParse(options.ApiVersion, out _))
         {
             failures.Add($"Salesforce:ApiVersion '{options.ApiVersion}' is not a valid Salesforce API version (expected e.g. 'v62.0', minimum v{SalesforceApiVersion.MinimumMajor}.0).");

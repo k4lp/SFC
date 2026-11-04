@@ -18,19 +18,19 @@ public class FieldValidator : IFieldValidator
     internal static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
 
     private static readonly Regex EmailRegex = new(
-        @"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$",
+        @"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\z",
         RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
     private static readonly Regex UrlRegex = new(
-        @"^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)\/?$", // SFC-25: removed nested quantifier (ReDoS)
+        @"^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)\/?\z", // SFC-25: removed nested quantifier (ReDoS)
         RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
     private static readonly Regex PhoneRegex = new(
-        @"^[\d\s\+\-\(\)\.ext]+$",
+        @"^[\d\s\+\-\(\)\.ext]+\z",
         RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
     private static readonly Regex SalesforceIdRegex = new(
-        @"^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$",
+        @"^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?\z",
         RegexOptions.Compiled, RegexTimeout);
 
     /// <summary>SFC-25: a regex timeout is treated as "no match" instead of surfacing as an exception.</summary>
