@@ -56,7 +56,11 @@ public static class SalesforcePathGuard
             return false;
         }
 
-        if (decoded.StartsWith("//", StringComparison.Ordinal) || decoded.Contains("://", StringComparison.Ordinal))
+        // A literal scheme ("https://") in the unencoded path could make the URL absolute. An encoded one
+        // ("https%3A%2F%2F...") cannot: it stays inside its segment, which is how legitimate external ID values such
+        // as product URLs travel (unreleased: the decoded form used to be checked, rejecting those values).
+        if (pathPart.StartsWith("//", StringComparison.Ordinal) || pathPart.Contains("://", StringComparison.Ordinal)
+            || decoded.StartsWith("//", StringComparison.Ordinal))
         {
             reason = "path must be instance-relative";
             return false;

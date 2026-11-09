@@ -24,6 +24,83 @@ public class AspNetCoreTokenProvider : ITokenProvider
     private const string RefreshCoordinatorCacheKeyPrefix = "SalesforceCore:TokenRefresh:";
     private static readonly TimeSpan RefreshCoordinatorTtl = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// unreleased: per-application (singleton) record of the last refresh per session: which access token it replaced and
+    /// what it produced. A request that queued on the refresh lock with the same rejected token reuses that result
+    /// instead of presenting the refresh token again (with refresh token rotation the second use fails with
+    /// invalid_grant and the user was logged out). Entries expire after <see cref="RefreshCoordinatorTtl"/>.
+    /// </summary>
+    internal sealed class LocalRefreshResults
+    {
+        /// <summary>Upper bound on remembered sessions. Only the window between a refresh and the queued requests of
+        /// the same session needs the entry, so evicting the oldest under extreme churn costs at most an extra refresh
+        /// for that session; it never hands one session another session's token.</summary>
+        internal const int DefaultMaxEntries = 10_000;
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Rejected, RefreshSnapshot Snapshot, DateTimeOffset At)> _entries = new(StringComparer.Ordinal);
+        private readonly TimeProvider _time;
+        private readonly int _maxEntries;
+        private readonly TimeSpan _ttl;
+        private long _lastSweepTicks;
+
+        public LocalRefreshResults() : this(TimeProvider.System, DefaultMaxEntries, RefreshCoordinatorTtl) { }
+
+        internal LocalRefreshResults(TimeProvider time, int maxEntries, TimeSpan ttl)
+        {
+            _time = time;
+            _maxEntries = maxEntries;
+            _ttl = ttl;
+        }
+
+        internal int Count => _entries.Count;
+
+        internal bool TryGet(string sessionKey, string rejected, out RefreshSnapshot snapshot)
+        {
+            snapshot = null!;
+            var now = _time.GetUtcNow();
+            if (_entries.TryGetValue(sessionKey, out var e) && string.Equals(e.Rejected, rejected, StringComparison.Ordinal)
+                && now - e.At <= _ttl)
+            {
+                snapshot = e.Snapshot;
+                return true;
+            }
+            Sweep(now, force: false);
+            return false;
+        }
+
+        internal void Set(string sessionKey, string rejected, RefreshSnapshot snapshot)
+        {
+            var now = _time.GetUtcNow();
+            _entries[sessionKey] = (rejected, snapshot, now);
+            Sweep(now, force: _entries.Count > _maxEntries);
+        }
+
+        /// <summary>Removes expired entries (at most once per second unless forced) and, above the cap, the oldest.</summary>
+        private void Sweep(DateTimeOffset now, bool force)
+        {
+            var last = Interlocked.Read(ref _lastSweepTicks);
+            if (!force && now.UtcTicks - last < TimeSpan.TicksPerSecond) return;
+            if (Interlocked.CompareExchange(ref _lastSweepTicks, now.UtcTicks, last) != last && !force) return;
+
+            foreach (var kv in _entries)
+            {
+                if (now - kv.Value.At > _ttl) _entries.TryRemove(kv);
+            }
+            // Above the cap, trim to 90% so a burst of new sessions does not sort the table on every write.
+            var excess = _entries.Count > _maxEntries ? _entries.Count - _maxEntries * 9 / 10 : 0;
+            if (excess > 0)
+            {
+                foreach (var kv in _entries.OrderBy(e => e.Value.At).Take(excess).ToList())
+                {
+                    _entries.TryRemove(kv);
+                }
+            }
+        }
+    }
+
+    private LocalRefreshResults? LocalResults =>
+        HttpContext?.RequestServices?.GetService(typeof(LocalRefreshResults)) as LocalRefreshResults;
+
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IDistributedCache? _distributedCache;
@@ -244,6 +321,15 @@ public class AspNetCoreTokenProvider : ITokenProvider
                 return await GetAccessTokenAsync(cancellationToken);
             }
 
+            // unreleased: another request in this process refreshed this session while we waited on the lock.
+            if (!string.IsNullOrWhiteSpace(refreshSessionKey) && !string.IsNullOrEmpty(rejectedAccessToken) &&
+                LocalResults is { } localResults && localResults.TryGet(refreshSessionKey, rejectedAccessToken, out var local) &&
+                authenticateResult?.Principal != null && authenticateResult.Properties != null)
+            {
+                await ApplyRefreshSnapshotAsync(authenticateResult, local, cancellationToken);
+                return local.AccessToken;
+            }
+
             // If another server refreshed while we were waiting, use that token instead of refreshing again.
             if (!string.IsNullOrWhiteSpace(refreshSessionKey))
             {
@@ -313,6 +399,14 @@ public class AspNetCoreTokenProvider : ITokenProvider
             {
                 _logger.LogError("Token refresh returned an untrusted instance URL; discarding tokens. {Reason}", instReason);
                 return null;
+            }
+
+            // Recorded before anything else can fail or be cancelled (cookie re-issue): Salesforce has already rotated
+            // the refresh token, so a queued request must be able to pick up this result.
+            if (!string.IsNullOrWhiteSpace(refreshSessionKey) && !string.IsNullOrEmpty(rejectedAccessToken))
+            {
+                LocalResults?.Set(refreshSessionKey, rejectedAccessToken,
+                    new RefreshSnapshot(tokenResponse.AccessToken, tokenResponse.RefreshToken, tokenResponse.InstanceUrl));
             }
 
             _logger.LogDebug("Token refresh successful, updating authentication properties");
@@ -506,7 +600,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
     private static string GetRefreshCoordinatorCacheKey(string sessionKey)
         => $"{RefreshCoordinatorCacheKeyPrefix}{sessionKey}";
 
-    private sealed record RefreshSnapshot(
+    internal sealed record RefreshSnapshot(
         string AccessToken,
         string? RefreshToken,
         string? InstanceUrl);
@@ -534,6 +628,7 @@ public class AspNetCoreTokenProvider : ITokenProvider
         public string? TokenType { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("issued_at")]
+        [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)] // unreleased: Salesforce sends issued_at as a string
         public long? IssuedAt { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("signature")]

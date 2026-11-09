@@ -1,6 +1,9 @@
 using SalesforceCore.Models.Layout;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.Extensions.DependencyInjection;
+using SalesforceCore.Services.Core;
+using SalesforceCore.Schema;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using SalesforceCore.Services.Metadata;
 
@@ -193,9 +196,82 @@ public class SalesforceModelFormTagHelper : TagHelper
         // Get fields to render
         var fields = await GetFieldsToRenderAsync();
 
+        // unreleased: picklist and lookup fields are rendered by their tag helpers here; tag-helper markup put into a
+        // string is never processed by Razor, so the browser used to receive an empty unknown <sf-picklist> element.
+        _nestedInputs.Clear();
+        foreach (var f in fields.Where(f => f.IsPicklist || f.IsLookup))
+        {
+            var nested = await RenderNestedInputAsync(f);
+            if (nested != null) _nestedInputs[f.Name] = nested;
+        }
+
         // Build form content
         var html = BuildFormHtml(fields);
         output.Content.SetHtmlContent(html);
+    }
+
+    private readonly Dictionary<string, string> _nestedInputs = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Model expression name of a field relative to the view (the template prefix is added by the inputs).</summary>
+    private string ExpressionName(string field) => string.IsNullOrEmpty(Model?.Name) ? field : $"{Model!.Name}.{field}";
+
+    private string HtmlFieldName(string field)
+    {
+        var expr = ExpressionName(field);
+        return ViewContext?.ViewData.TemplateInfo.GetFullHtmlFieldName(expr) ?? expr;
+    }
+
+    private async Task<string?> RenderNestedInputAsync(Models.Metadata.SObjectField field)
+    {
+        var services = ViewContext?.HttpContext?.RequestServices;
+        if (services == null) return null;
+
+        var explorer = Model?.ModelExplorer.GetExplorerForProperty(field.Name)
+            ?? (Model?.ModelExplorer ?? ViewContext!.ViewData.ModelExplorer).GetExplorerForExpression(typeof(string), GetModelPropertyValue(field.Name));
+        var expression = new ModelExpression(ExpressionName(field.Name), explorer);
+        var (_, _, inputClass, _, _) = GetFrameworkClasses();
+        var isReadonly = Mode == FormMode.View || !IsFieldEditable(field);
+        var required = !field.Nillable && field.Createable && !isReadonly;
+
+        TagHelper nested;
+        string tagName;
+        if (field.IsPicklist)
+        {
+            tagName = "sf-picklist";
+            nested = new SalesforcePicklistTagHelper(services.GetRequiredService<ISchemaService>(), services.GetRequiredService<IRecordTypeManager>())
+            {
+                For = expression,
+                ObjectName = ObjectName,
+                FieldName = field.Name,
+                RecordTypeId = RecordTypeId,
+                CssClass = string.IsNullOrEmpty(inputClass) ? null : inputClass,
+                Required = required,
+                Disabled = isReadonly,
+                ViewContext = ViewContext!,
+            };
+        }
+        else
+        {
+            tagName = "sf-lookup";
+            var lookup = ActivatorUtilities.CreateInstance<SalesforceLookupTagHelper>(services);
+            lookup.For = expression;
+            lookup.ObjectName = ObjectName;
+            lookup.FieldName = field.Name;
+            lookup.CssClass = string.IsNullOrEmpty(inputClass) ? null : inputClass;
+            lookup.Required = required;
+            lookup.Disabled = isReadonly;
+            lookup.ViewContext = ViewContext!;
+            nested = lookup;
+        }
+
+        var ctx = new TagHelperContext(tagName, new TagHelperAttributeList(), new Dictionary<object, object>(), Guid.NewGuid().ToString("N"));
+        var output = new TagHelperOutput(tagName, new TagHelperAttributeList(),
+            (_, _) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
+        nested.Init(ctx);
+        await nested.ProcessAsync(ctx, output);
+        using var writer = new StringWriter();
+        output.WriteTo(writer, System.Text.Encodings.Web.HtmlEncoder.Default);
+        return "  " + writer + "\n";
     }
 
     private string GetFormClasses()
@@ -395,9 +471,11 @@ public class SalesforceModelFormTagHelper : TagHelper
     private string BuildFieldHtml(Models.Metadata.SObjectField field, int index, bool isReadonly)
     {
         var columnClass = GetColumnClass();
-        var fieldName = Model != null ? $"{Model.Name}.{field.Name}" : field.Name;
+        // unreleased: asp-model="@Model" has an empty expression name, which used to produce name=".Name" (never binds);
+        // names now follow the model expression and template prefix the same way asp-for inputs do.
+        var fieldName = HtmlFieldName(field.Name);
         var currentValue = GetModelPropertyValue(field.Name);
-        var inputId = fieldName.Replace(".", "_");
+        var inputId = fieldName.Replace(".", "_").Replace("[", "_").Replace("]", "_");
 
         // Get framework-specific classes
         var (wrapperClass, labelClass, inputClass, helpClass, validationClass) = GetFrameworkClasses();
@@ -513,6 +591,11 @@ public class SalesforceModelFormTagHelper : TagHelper
         var encodedValue = System.Web.HttpUtility.HtmlAttributeEncode(currentValue ?? "");
 
         // Handle special field types
+        if ((field.IsPicklist || field.IsLookup) && _nestedInputs.TryGetValue(field.Name, out var rendered))
+        {
+            return rendered;
+        }
+
         if (field.IsPicklist)
         {
             var rtIdAttr = !string.IsNullOrEmpty(RecordTypeId) ? $" sf-record-type-id=\"{A(RecordTypeId)}\"" : "";

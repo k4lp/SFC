@@ -1,5 +1,79 @@
 # Changelog
 
+## 2.8.0 — 2026-11-09
+
+End-to-end workflow audit round 5. Adds public API (`IApexService.GetNodeAsync`, `SalesforceRedirectPolicy`,
+`AddSalesforceRedirectPolicy`) and changes behaviour (redirects, form field names). See [MIGRATION.md](MIGRATION.md#280).
+New E2E classes: `Round5WorkflowE2ETests`, `RedirectTwoListenerE2ETests` (two real
+HTTPS Kestrel listeners), `RazorRenderingE2ETests` (compiled Razor views in the new `tests/SalesforceCore.RazorTestHost`
+project), `TokenProviderConcurrencyE2ETests` (cookie-auth ASP.NET host), `DataTypeRoundTripE2ETests`,
+`TransportReadPathsE2ETests`, `LinqAggregateEmptyE2ETests`, `GeneratedModelUsageE2ETests`, `BulkPartialFailureE2ETests`. Tests: 19 new unit tests (1101 → 1120) and 47 new E2E tests (69 → 116).
+
+### Fixes
+- **High: browser-login token refresh failed on Salesforce's documented response.** `AspNetCoreTokenProvider` read
+  `issued_at` as a JSON number; Salesforce's documented JSON samples send it as a string (`"issued_at":"1278448384422"`,
+  Salesforce Help "OAuth 2.0 Hybrid App Refresh Token Flow" and "OAuth 2.0 Web Server Flow"). Deserialisation threw, the
+  refresh returned null and the user got "Session has expired. Please log in again." when the access token expired.
+  Now accepted as a string, a number, or absent (tested). Verified against the documented samples and the fake server,
+  not a live org. `DistributedCacheTokenProvider` parses the response differently and was not affected.
+- **High: record data, SOQL and (revoke) refresh tokens could be re-sent to another host on redirect.** The API and token HTTP clients followed
+  redirects automatically. .NET drops the `Authorization` header on redirect, but it still re-sent the request:
+  query strings (SOQL) on every method and, on 307/308, the JSON body (record data). `SalesforceTransportSecurityHandler`
+  only discarded the response afterwards. Automatic redirects are now off for the `SalesforceApi`, JWT,
+  client-credentials, `SalesforceTokenRefresh` and `SalesforceTokenRevoke` clients (`SalesforceRedirectPolicy`, applied
+  after every other primary-handler configuration, by client name, so it also covers clients the app never registered
+  with `AddHttpClient`, e.g. `SalesforceTokenRevoke` under `AddSalesforceCoreMvc`, which posts the refresh token). A
+  3xx to another host throws `SalesforceConnectionException`; a same-host 3xx surfaces as an error, never as success.
+- **Same user, parallel requests, refresh token rotation: the second request logged the user out.** Both requests saw
+  the 401; the second waited on the per-session lock and then presented the already-rotated refresh token
+  (`invalid_grant`). A per-application record of the last refresh per session (keyed by session and the rejected
+  access token, 2-minute TTL) now lets the queued request reuse the result. One refresh per expiry. The record is a
+  singleton per DI container, written before the cookie is re-issued, and never returns an entry older than the TTL;
+  expired entries (which still hold the new access/refresh token in memory) are swept on later reads and writes (at
+  most once a second), and the record is capped at 10,000 sessions: above that the oldest entries are dropped down to
+  9,000. Dropping an entry early can only cost that session one extra refresh; an entry is never served for another
+  session or for a different rejected token (tested with 50,000 unique sessions). An idle app with no further token
+  activity can still keep the last entries in memory until the next request. It only
+  helps requests in the same process; across servers the existing distributed-cache coordinator still applies.
+- **`sf-field-group` rendered picklist and lookup fields as an unprocessed `<sf-picklist>` / `<sf-lookup>` tag.**
+  Markup set with `SetHtmlContent` is not processed by Razor, so the browser got an empty unknown element and no input.
+  The field group now runs the picklist / lookup tag helper itself and embeds its output.
+- **`sf-picklist` / `sf-field-group` form binding.** An enum model never pre-selected its value, and the field's
+  `name`/`id` ignored `asp-for` and the template prefix (`Deal.Industry`), so posts did not bind back and field-group
+  labels pointed at the wrong id. The model was
+  compared by C# name (`ClosedWon`) instead of its `[SalesforceValue]` (`Closed Won`), and `name`/`id` came from
+  `sf-picklist-field` instead of `asp-for`, so the form did not bind back. Values now use the same wire formatting as
+  saves (enums, `[Flags]` enums, sequences), and `asp-for` (with template prefix) sets `name`/`id`.
+- **`sf-model-form` posted fields as `.Name` and rendered picklists as an unprocessed `<sf-picklist>` tag.** The
+  documented `asp-model="Model"` does not compile unless the model has a `Model` property; `asp-model="@Model"` has an
+  empty expression name, so every input was named `.Name`, `.Industry`, … and never bound back. Names now follow the
+  model expression and template prefix like `asp-for` inputs, and picklist / lookup fields are rendered by their tag
+  helpers. Docs now show `asp-model="@Model"`.
+- **`sf-lookup` ignored the template prefix.** Inside an editor template / `HtmlFieldPrefix` the hidden value posted as
+  `ParentId` instead of `Deal.ParentId`. With `asp-for` the name/id now include the prefix; `sf-field` only selects the
+  Salesforce metadata.
+- **LINQ: `x.MultiSelect.Contains("A")` threw** "Cannot evaluate expression value from a query parameter expression".
+  On a mapped collection property it now translates to `Field INCLUDES ('A')`.
+- **External ID values containing `://` were rejected before sending (2.7.0 regression).** `SalesforcePathGuard`
+  checked the *decoded* path for `://`, so an upsert keyed on a URL-shaped external ID (`https://shop.example.com/p/1`,
+  `urn:sku://a/b`) threw `ArgumentException: path must be instance-relative` although the value is percent-encoded
+  into one segment and cannot make the request absolute. The scheme check now runs on the raw path; dot-segment,
+  backslash and control-character checks still run on the decoded form.
+- **Raw Apex `GetAsync(path)` crashed on array responses** with System.Text.Json's bare
+  `The node must be of type 'JsonObject'`. New `IApexService.GetNodeAsync` returns any JSON shape (array, scalar,
+  object, null); `GetAsync` keeps returning `JsonObject` and now throws an `InvalidOperationException` that names the
+  endpoint, the actual JSON kind, and points to `GetNodeAsync` / `GetAsync<T>`.
+
+### Known residuals (not fixed here)
+- **Token endpoint response size is not capped.** The token clients read the OAuth response without a size limit
+  (the API transport has its own read paths). A hostile or broken token endpoint could make the app buffer a large body.
+  The token host is configuration-controlled and redirects are now refused, so this needs a malicious configured host.
+- **Triple-encoded paths pass `SalesforcePathGuard`.** The guard decodes twice. Tested over a real HTTPS Kestrel
+  listener: `/Orders/%25252e%25252e%25252f…` goes on the wire unchanged and the server routes it as one literal
+  segment under `/services/apexrest/` (`TripleEncodedPathE2ETests`). It is inert unless something between the app and
+  Salesforce percent-decodes the same path three times before resolving dot segments. Not verified against a live org.
+- The refresh-reuse record works within one process only (see above).
+
 ## 2.7.0 — 2026-11-04
 
 Security pass: STRIDE threat model of every package, attack tests (payload corpora, hostile fake-server responses,

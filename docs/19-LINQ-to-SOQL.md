@@ -92,6 +92,7 @@ a date field.
 | `FiscalYear`, `FiscalQuarter`, `FiscalMonth`, `WeekInYear`, `WeekInMonth` | `FISCAL_YEAR(…)` … |
 | `SoqlFunctions.DayOnly(a.CreatedDate) == new DateOnly(2026,10,30)` | `DAY_ONLY(CreatedDate) = 2026-10-30` |
 | `SoqlFunctions.DatePart(DateFunction.HOUR_IN_DAY, SoqlFunctions.ConvertTimezone(a.CreatedDate)) < 9` | `HOUR_IN_DAY(convertTimezone(CreatedDate)) < 9` |
+| `a.Regions.Contains("EMEA")` (mapped `List<string>`/`string[]` multi-select, unreleased) | `(Regions__c INCLUDES ('EMEA'))` |
 | `SoqlFunctions.Includes(a.Regions, "EMEA", "APAC;LATAM")` | `Regions__c INCLUDES ('EMEA', 'APAC;LATAM')` (`;` = both) |
 | `SoqlFunctions.Excludes(a.Regions, "EMEA")` | `Regions__c EXCLUDES ('EMEA')` |
 | `SoqlFunctions.ToLabel(a.Status) == "Offen"` | `toLabel(Status) = 'Offen'` |

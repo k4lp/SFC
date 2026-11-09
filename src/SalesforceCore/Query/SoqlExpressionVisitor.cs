@@ -662,6 +662,22 @@ public class SoqlExpressionVisitor : ExpressionVisitor
                 itemExpr = node.Arguments[1];
             }
 
+            // unreleased: field.Contains(value) on a mapped multi-select picklist collection (List<string>, string[]) is
+            // SOQL INCLUDES. It used to fall into the IN branch and fail with "Cannot evaluate expression value from a
+            // query parameter expression".
+            if (ContainsParameter(collectionExpr) && !ContainsParameter(itemExpr))
+            {
+                var item = GetExpressionValue(itemExpr);
+                var text = item is Enum e ? GetEnumSalesforceValue(e) : Convert.ToString(item, System.Globalization.CultureInfo.InvariantCulture);
+                if (string.IsNullOrEmpty(text))
+                {
+                    throw new NotSupportedException("A multi-select picklist Contains(...) value must be a non-empty string.");
+                }
+                _whereClause.Append('(').Append(RenderFieldOperand(collectionExpr))
+                    .Append(" INCLUDES ('").Append(SecurityUtils.SanitizeForSoql(text)).Append("'))");
+                return node;
+            }
+
             var values = ExtractValues(collectionExpr);
             if (values.Count == 0)
             {

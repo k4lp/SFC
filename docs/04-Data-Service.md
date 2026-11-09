@@ -158,6 +158,14 @@ if (result.Success)
 }
 ```
 
+**External ID values in the URL.** The value is percent-encoded as one path segment (`A/B` → `A%2FB`,
+`https://x/p` → `https%3A%2F%2Fx%2Fp`, Unicode as UTF-8). `.`/`..` and control characters are rejected before
+sending. Salesforce documents one REST-path limitation SFC cannot detect: values ending in a file-extension-like
+top-level domain (for example `someone@email.inc`) return `404 NOT_FOUND`; use another external ID field, look up the
+Id first, or upsert through SOAP/Apex ([REST API Developer Guide, "Upsert Records Using sObject Rows by External
+ID"](https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/resources_sobject_upsert_patch.htm)).
+Encoded slashes are not covered by that page; they were exercised only against the local fake server, not a live org.
+
 ### Read Record
 
 ```csharp

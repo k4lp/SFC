@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Razor.TagHelpers;
+using Microsoft.Extensions.DependencyInjection;
+using SalesforceCore.Schema;
 using SalesforceCore.Services.Metadata;
 
 namespace SalesforceCore.AspNetCore.TagHelpers;
@@ -159,9 +161,21 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         }
         output.Attributes.SetAttribute("class", wrapperClasses);
 
+        // unreleased: picklist and lookup inputs are produced by running the sf-picklist / sf-lookup tag helpers here.
+        // Markup set through SetHtmlContent is never processed by Razor, so emitting "<sf-picklist ...>" as a string
+        // (the previous behaviour) sent an unknown, empty element to the browser.
+        _nestedInputHtml = await RenderNestedInputAsync(fieldMeta, isRequired);
+
+        // unreleased: with asp-for, inputs post under the model expression name (including any template prefix) and the
+        // label points at the id the input really gets; sf-field only selects the Salesforce metadata.
+        var htmlName = For != null
+            ? ViewContext?.ViewData.TemplateInfo.GetFullHtmlFieldName(For.Name) ?? For.Name
+            : fieldName;
+        inputId = htmlName.Replace(".", "_").Replace("[", "_").Replace("]", "_");
+
         // Build the HTML
         var html = BuildFieldGroupHtml(
-            fieldName,
+            htmlName,
             inputId,
             label,
             helpText,
@@ -169,6 +183,65 @@ public class SalesforceFieldGroupTagHelper : TagHelper
             fieldMeta);
 
         output.Content.SetHtmlContent(html);
+    }
+
+    private string? _nestedInputHtml;
+
+    private async Task<string?> RenderNestedInputAsync(Models.Metadata.SObjectField? fieldMeta, bool isRequired)
+    {
+        var services = ViewContext?.HttpContext?.RequestServices;
+        if (fieldMeta == null || services == null || !(fieldMeta.IsPicklist || fieldMeta.IsLookup))
+        {
+            return null;
+        }
+
+        var inputClasses = Framework switch
+        {
+            CssFramework.SLDS => "slds-input",
+            CssFramework.None => "",
+            _ => "form-control"
+        } + (!string.IsNullOrEmpty(InputClass) ? " " + InputClass : "");
+        inputClasses = inputClasses.Trim();
+
+        TagHelper nested;
+        string tagName;
+        if (fieldMeta.IsPicklist)
+        {
+            tagName = "sf-picklist";
+            nested = new SalesforcePicklistTagHelper(services.GetRequiredService<ISchemaService>(), services.GetRequiredService<IRecordTypeManager>())
+            {
+                For = For,
+                ObjectName = ObjectName,
+                FieldName = fieldMeta.Name,
+                RecordTypeId = RecordTypeId,
+                CssClass = inputClasses.Length > 0 ? inputClasses : null,
+                Required = isRequired,
+                Disabled = ReadOnly,
+                ViewContext = ViewContext!,
+            };
+        }
+        else
+        {
+            tagName = "sf-lookup";
+            var lookup = ActivatorUtilities.CreateInstance<SalesforceLookupTagHelper>(services);
+            lookup.For = For;
+            lookup.ObjectName = ObjectName;
+            lookup.FieldName = fieldMeta.Name;
+            lookup.CssClass = inputClasses.Length > 0 ? inputClasses : null;
+            lookup.Required = isRequired;
+            lookup.Disabled = ReadOnly;
+            lookup.ViewContext = ViewContext!;
+            nested = lookup;
+        }
+
+        var ctx = new TagHelperContext(tagName, new TagHelperAttributeList(), new Dictionary<object, object>(), Guid.NewGuid().ToString("N"));
+        var output = new TagHelperOutput(tagName, new TagHelperAttributeList(),
+            (_, _) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
+        nested.Init(ctx);
+        await nested.ProcessAsync(ctx, output);
+        using var writer = new StringWriter();
+        output.WriteTo(writer, System.Text.Encodings.Web.HtmlEncoder.Default);
+        return writer.ToString() + "\n";
     }
 
     private async Task<Models.Metadata.SObjectField?> GetFieldMetadataAsync(string fieldName)
@@ -320,6 +393,11 @@ public class SalesforceFieldGroupTagHelper : TagHelper
         var encodedValue = System.Web.HttpUtility.HtmlAttributeEncode(valueStr);
 
         // Handle special field types
+        if (_nestedInputHtml != null)
+        {
+            return _nestedInputHtml;
+        }
+
         if (fieldMeta?.IsPicklist == true)
         {
             // Return a placeholder that will be replaced by sf-picklist

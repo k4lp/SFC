@@ -1,0 +1,7 @@
+@model ProbeModel
+@{ ViewData.TemplateInfo.HtmlFieldPrefix = "Deal"; }
+<form>
+<sf-picklist asp-for="IndustryEnum" sf-object="Account" sf-picklist-field="Industry" />
+<sf-field-group asp-for="Industry" sf-object="Account" sf-field="Industry" />
+<sf-field-group asp-for="Industry" sf-object="Account" sf-field="Name" />
+</form>

@@ -201,6 +201,7 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<SalesforceLoggingHandler>();
         services.TryAddTransient<SalesforceCompressionHandler>();
         services.TryAddTransient<SalesforceTransportSecurityHandler>();
+        services.AddSalesforceRedirectPolicy();
 
         if (!services.Any(d => d.ServiceType == typeof(SalesforceCoreMarker)))
         {
@@ -208,6 +209,7 @@ public static class ServiceCollectionExtensions
 
             var api = services.AddHttpClient<ISalesforceClient, SalesforceClient>(SalesforceHttpClientNames.Api, ConfigureClient);
             api.AddStandardResilienceHandler().Configure((resilience, sp) => ConfigureResilience(resilience, sp.GetRequiredService<IOptions<SalesforceOptions>>().Value));
+            api.DisableAutoRedirect();
             api.AddHttpMessageHandler<SalesforceTransportSecurityHandler>();
             api.AddHttpMessageHandler<SalesforceLoggingHandler>();
             api.AddHttpMessageHandler<SalesforceApiUsageHandler>();
@@ -216,8 +218,8 @@ public static class ServiceCollectionExtensions
             // re-apply HttpTimeout afterwards so it acts as an outer safety net as documented.
             api.ConfigureHttpClient((sp, c) => c.Timeout = sp.GetRequiredService<IOptions<SalesforceOptions>>().Value.HttpTimeout);
 
-            services.AddHttpClient(SalesforceHttpClientNames.Jwt, ConfigureClient).AddStandardResilienceHandler();
-            services.AddHttpClient(SalesforceHttpClientNames.ClientCredentials, ConfigureClient).AddStandardResilienceHandler();
+            services.AddHttpClient(SalesforceHttpClientNames.Jwt, ConfigureClient).DisableAutoRedirect().AddStandardResilienceHandler();
+            services.AddHttpClient(SalesforceHttpClientNames.ClientCredentials, ConfigureClient).DisableAutoRedirect().AddStandardResilienceHandler();
         }
 
         // ---- Services ------------------------------------------------------------------------------------

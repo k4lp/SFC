@@ -1,0 +1,4 @@
+@model ProbeModel
+<div id="plain"><sf-lookup asp-for="ParentId" sf-target-object="Account" /></div>
+@{ ViewData.TemplateInfo.HtmlFieldPrefix = "Deal"; }
+<div id="prefixed"><sf-lookup asp-for="ParentId" sf-target-object="Account" /></div>

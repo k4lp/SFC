@@ -1,4 +1,22 @@
-# Migrating to SalesforceCore 2.2 – 2.7
+# Migrating to SalesforceCore 2.2 – 2.8
+
+<a id="280"></a>
+## 2.8.0
+
+- `IApexService` gains `GetNodeAsync`; it has a default interface implementation, so custom
+  implementations still compile (the default throws `NotSupportedException` until you implement it).
+- External ID values containing an encoded `://` are accepted again (they were rejected in 2.7.0).
+- **Behaviour change:** Salesforce HTTP clients no longer follow redirects. A redirect to another host throws
+  `SalesforceConnectionException`; a same-host 3xx is returned as an error response. If you route through a proxy that
+  redirects on purpose, configure the proxy instead. A primary handler that is neither `SocketsHttpHandler` nor
+  `HttpClientHandler` is left as-is.
+- **Behaviour change:** `sf-picklist` and `sf-field-group` take `name`/`id` from `asp-for` plus the template prefix
+  (`asp-for="X" sf-field="Y"` renders `name="X"`, or `name="Deal.X"` under prefix `Deal`; it rendered `name="Y"`).
+  If your controller binds the posted value by the Salesforce field name, bind the model property instead.
+- `sf-field-group` emits a real `<select>` for picklist fields and the lookup widget for lookup fields. CSS that targeted
+  the literal `sf-picklist` element must target `select.sf-picklist`.
+- Custom `IApexService` implementations or decorators should implement/forward `GetNodeAsync`; the interface default
+  throws `NotSupportedException`.
 
 <a id="270"></a>
 ## 2.7.0

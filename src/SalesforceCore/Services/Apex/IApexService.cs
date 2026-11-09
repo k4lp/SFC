@@ -32,6 +32,13 @@ public interface IApexService
     Task<JsonObject> GetAsync(string path, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// unreleased: GET an Apex REST endpoint and return the raw JSON node, whatever its shape: object, array
+    /// (for example a method returning <c>List&lt;Account&gt;</c>), scalar, or <c>null</c> for an empty body.
+    /// </summary>
+    Task<JsonNode?> GetNodeAsync(string path, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"{GetType().Name} does not implement GetNodeAsync.");
+
+    /// <summary>
     /// Performs a GET request with query parameters.
     /// </summary>
     /// <typeparam name="T">Response type to deserialize.</typeparam>
