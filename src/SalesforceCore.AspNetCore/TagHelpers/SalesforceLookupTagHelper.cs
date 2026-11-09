@@ -180,15 +180,20 @@ public class SalesforceLookupTagHelper : TagHelper
         output.Attributes.SetAttribute("class", containerClasses);
 
         // Determine field name
-        var fieldName = FieldName ?? For?.Name ?? "lookup";
-        var inputId = fieldName.Replace(".", "_");
+        // unreleased: sf-field selects the Salesforce metadata; with asp-for the input posts under the model expression
+        // name including any template prefix, so it binds back (it used to post as the bare Salesforce field name).
+        var metadataField = FieldName ?? For?.Name ?? "lookup";
+        var fieldName = For != null
+            ? ViewContext?.ViewData.TemplateInfo.GetFullHtmlFieldName(For.Name) ?? For.Name
+            : metadataField;
+        var inputId = fieldName.Replace(".", "_").Replace("[", "_").Replace("]", "_");
 
         // Get current value
         var currentValue = For?.Model?.ToString();
         var displayValue = "";
 
         // Determine target object(s)
-        var targetObjects = await GetTargetObjectsAsync(fieldName);
+        var targetObjects = await GetTargetObjectsAsync(metadataField);
         var isPolymorphic = targetObjects.Count > 1;
 
         // If there's a current value, resolve the display name

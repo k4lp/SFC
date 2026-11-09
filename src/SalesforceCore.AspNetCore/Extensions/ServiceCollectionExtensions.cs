@@ -1,3 +1,4 @@
+using SalesforceCore.Http;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -58,11 +60,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserContextProvider, AspNetCoreUserContextProvider>();
 
         // Add HttpClient for token refresh
-        services.AddHttpClient("SalesforceTokenRefresh")
+        services.AddHttpClient("SalesforceTokenRefresh").DisableAutoRedirect()
             .AddStandardResilienceHandler();
 
         // Add token provider
         services.AddScoped<ITokenProvider, AspNetCoreTokenProvider>();
+        services.TryAddSingleton<AspNetCoreTokenProvider.LocalRefreshResults>();
 
         // Register controllers from this assembly
         var mvcBuilder = services.AddControllersWithViews()
@@ -125,10 +128,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserContextProvider, AspNetCoreUserContextProvider>();
 
         // Add HttpClient for token refresh
-        services.AddHttpClient("SalesforceTokenRefresh");
+        services.AddHttpClient("SalesforceTokenRefresh").DisableAutoRedirect();
 
         // Add token provider
         services.AddScoped<ITokenProvider, AspNetCoreTokenProvider>();
+        services.TryAddSingleton<AspNetCoreTokenProvider.LocalRefreshResults>();
 
         // Register controllers from this assembly
         var mvcBuilder = services.AddControllersWithViews()
@@ -212,9 +216,9 @@ public static class ServiceCollectionExtensions
         // Ensure required infrastructure for web token handling is present.
         services.AddHttpContextAccessor();
         services.AddDataProtection();
-        services.AddHttpClient("SalesforceTokenRefresh")
+        services.AddHttpClient("SalesforceTokenRefresh").DisableAutoRedirect()
             .AddStandardResilienceHandler();
-        services.AddHttpClient("SalesforceTokenRevoke")
+        services.AddHttpClient("SalesforceTokenRevoke").DisableAutoRedirect()
             .AddStandardResilienceHandler();
 
         // Register the default web token provider (cookie/OIDC-based) if the app hasn't chosen one already.
@@ -222,6 +226,7 @@ public static class ServiceCollectionExtensions
         if (!services.Any(s => s.ServiceType == typeof(ITokenProvider)))
         {
             services.AddScoped<ITokenProvider, AspNetCoreTokenProvider>();
+        services.TryAddSingleton<AspNetCoreTokenProvider.LocalRefreshResults>();
         }
 
         var builder = services.AddAuthentication(options =>

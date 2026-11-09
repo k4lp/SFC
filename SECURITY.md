@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 2.7.x   | ✅ security fixes |
-| 2.0–2.6 | ⚠️ upgrade to 2.7.0 — report-ID and composite/Tooling path traversal, tokens echoed in exception messages, gzip decompression bomb, SQL identifier quoting, Linux file-name sanitisation (see CHANGELOG 2.7.0) |
+| 2.8.x   | ✅ security fixes |
+| 2.7.x   | ⚠️ upgrade to 2.8.0 — HTTP redirects could resend record data, SOQL or refresh tokens; browser-login token refresh failed on Salesforce's documented string `issued_at` (see CHANGELOG 2.8.0) |
+| 2.0–2.6 | ⚠️ upgrade to 2.8.0 — also includes 2.7.0 path traversal, tokens in exception messages, gzip decompression bomb, SQL identifier quoting, Linux file-name sanitisation |
 | 1.3.x   | ❌ |
 | 1.2.x   | ⚠️ upgrade to 1.3.0 — stored XSS via file preview, plaintext tokens in DistributedCacheTokenProvider, session-fixation token cache key (see docs/security/SFC_Security_Scan_Report.md) |
 | 1.1.x   | ⚠️ upgrade to 1.2.0 — contains a SOQL escaping injection bug and no instance_url validation |

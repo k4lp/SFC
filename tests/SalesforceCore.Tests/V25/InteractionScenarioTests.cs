@@ -61,7 +61,32 @@ public class InteractionScenarioTests
         (await first).Should().Be("v");
         (await third).Should().Be("v");
         calls.Should().Be(1, "scoped providers used to have their own locks, so each scope ran the factory");
-        MemoryCacheProvider.KeyLocks.Count.Should().Be(0);
+        // The lock table is process-wide and other test classes run in parallel (EndToEndSecurityTests holds
+        // "SF_test_key" for ~100 ms), so the global Count is not ours to assert. Check this test's own key.
+        MemoryCacheProvider.KeyLocks.IsTracked("SF_" + key).Should().BeFalse("the cancelled waiter and both holders released it");
+    }
+
+    [Fact]
+    public async Task KeyLockRelease_IsPerKey_EvenWhileAnotherKeyIsHeld()
+    {
+        // Deterministic version of the parallel-class interaction that made the old global Count == 0 assertion fail.
+        var other = "other" + Guid.NewGuid();
+        var mine = "mine" + Guid.NewGuid();
+        using var held = await MemoryCacheProvider.KeyLocks.AcquireAsync(other, CancellationToken.None);
+
+        using (var cts = new CancellationTokenSource())
+        {
+            var first = await MemoryCacheProvider.KeyLocks.AcquireAsync(mine, CancellationToken.None);
+            var waiter = MemoryCacheProvider.KeyLocks.AcquireAsync(mine, cts.Token);
+            cts.Cancel();
+            await FluentActions.Awaiting(() => waiter).Should().ThrowAsync<OperationCanceledException>();
+            MemoryCacheProvider.KeyLocks.IsTracked(mine).Should().BeTrue("still held by the first caller");
+            first.Dispose();
+        }
+
+        MemoryCacheProvider.KeyLocks.IsTracked(mine).Should().BeFalse();
+        MemoryCacheProvider.KeyLocks.IsTracked(other).Should().BeTrue();
+        MemoryCacheProvider.KeyLocks.Count.Should().BeGreaterThan(0, "a global count is not zero while any other key is held");
     }
 
     // ---- LINQ: enum aggregates, paging arithmetic -----------------------------------------------------------------

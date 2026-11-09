@@ -24,6 +24,13 @@ internal sealed class KeyedAsyncLock
     /// <summary>Number of keys currently locked or awaited (for tests).</summary>
     internal int Count { get { lock (_entries) return _entries.Count; } }
 
+    /// <summary>True while the key is locked or awaited (for tests; the table is process-wide, so tests must check
+    /// their own key rather than the global count).</summary>
+    internal bool IsTracked(string key) { lock (_entries) return _entries.ContainsKey(key); }
+
+    /// <summary>Snapshot of tracked keys (diagnostics/tests).</summary>
+    internal string[] SnapshotKeys() { lock (_entries) return _entries.Keys.ToArray(); }
+
     /// <summary>Waits for the key's lock; dispose the result to release it.</summary>
     public async Task<IDisposable> AcquireAsync(string key, CancellationToken cancellationToken)
     {

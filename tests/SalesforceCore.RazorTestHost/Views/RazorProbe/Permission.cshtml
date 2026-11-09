@@ -1,0 +1,8 @@
+@model ProbeModel
+<sf-permission object="Account" mode="Create">[can-create-account]</sf-permission>
+<sf-permission object="Account" mode="Delete">[can-delete-account]</sf-permission>
+<sf-permission object="Account" mode="Delete" negate="true">[cannot-delete-account]</sf-permission>
+<sf-permission object="Account" field="Name" mode="Update">[can-edit-name]</sf-permission>
+<sf-permission object="Account" field="Id" mode="Update">[can-edit-id]</sf-permission>
+<sf-permission object="Account" field="NoSuch__c">[unknown-field]</sf-permission>
+<sf-permission object="Nope__c">[unknown-object]</sf-permission>

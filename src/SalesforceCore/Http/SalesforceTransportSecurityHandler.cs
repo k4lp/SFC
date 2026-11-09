@@ -35,6 +35,17 @@ public sealed class SalesforceTransportSecurityHandler : DelegatingHandler
 
         var originalHost = uri?.IdnHost;
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        // unreleased: redirects are not followed (SalesforceRedirectPolicy); a 3xx pointing at another host is refused here.
+        if ((int)response.StatusCode is >= 300 and < 400 && response.Headers.Location is { } location && uri != null)
+        {
+            var target = location.IsAbsoluteUri ? location : new Uri(uri, location);
+            if (!string.Equals(target.IdnHost, originalHost, StringComparison.OrdinalIgnoreCase))
+            {
+                response.Dispose();
+                throw new SalesforceConnectionException(
+                    $"Salesforce request to '{originalHost}' was redirected to a different host ('{target.IdnHost}'); the redirect was not followed.");
+            }
+        }
         var finalHost = response.RequestMessage?.RequestUri?.IdnHost;
         if (originalHost != null && finalHost != null && !string.Equals(originalHost, finalHost, StringComparison.OrdinalIgnoreCase))
         {

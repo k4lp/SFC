@@ -89,6 +89,8 @@ var report = await reportService.RunAsync("00OXXXXXXXXXXXX");
 
 ## Apex REST (`IApexService`)
 - Call custom Apex REST endpoints with strongly-typed helpers.
+- `GetAsync(path)` returns a `JsonObject`; for endpoints returning a list or scalar use `GetAsync<List<T>>` or
+  `GetNodeAsync(path)` (raw `JsonNode?`, unreleased).
 - Example:
 ```csharp
 var response = await apexService.PostAsync<MyResponse>("MyNamespace/MyEndpoint", payload);

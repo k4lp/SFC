@@ -145,22 +145,27 @@ public class SalesforcePicklistTagHelper : TagHelper
 
         // Determine field name
         var fieldName = FieldName ?? For?.Name ?? "picklist";
-        var inputId = fieldName.Replace(".", "_");
+        // unreleased: with asp-for, the form field name/id come from the model expression (with any template prefix) so the
+        // posted value binds back; sf-picklist-field only names the Salesforce field whose values are listed.
+        var htmlName = For != null
+            ? ViewContext?.ViewData.TemplateInfo.GetFullHtmlFieldName(For.Name) ?? For.Name
+            : fieldName;
+        var inputId = htmlName.Replace(".", "_").Replace("[", "_").Replace("]", "_");
 
         // Get current value(s)
         // A multi-select may be bound to "a;b" (Salesforce wire format) or to a string collection; previously a
         // collection rendered as its type name and nothing was pre-selected.
+        // unreleased: enums (with [SalesforceValue]), [Flags] enums and sequences use the same wire formatting as saves,
+        // so a model bound to an enum pre-selects the Salesforce value it maps to (it used to compare the C# name).
         var model = For?.Model;
-        var currentValue = model is System.Collections.IEnumerable seq and not string
-            ? string.Join(";", seq.Cast<object?>().Where(v => v != null).Select(v => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture)))
-            : Convert.ToString(model, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        var currentValue = model == null ? "" : SalesforceCore.Mapping.SalesforceWireFormat.FormatMultiPicklist(model);
         var currentValues = Multiple
             ? currentValue.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(v => v.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentValue };
 
         // Set basic attributes
         output.Attributes.SetAttribute("id", inputId);
-        output.Attributes.SetAttribute("name", fieldName);
+        output.Attributes.SetAttribute("name", htmlName);
 
         var cssClasses = "form-select sf-picklist";
         if (!string.IsNullOrEmpty(CssClass))

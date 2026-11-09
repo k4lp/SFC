@@ -31,6 +31,11 @@ Example:
   - `asp-for`: bound property.
   - `sf-object`: target object.
   - `sf-record-type-id` (optional): record type context.
+  - `sf-picklist-field` (optional): Salesforce field whose values are listed, when it differs from the property name.
+- `asp-for` decides `name`/`id` (with any template prefix) so the post binds back. The current value is compared in
+  Salesforce form: an enum with `[SalesforceValue("Closed Won")]` pre-selects `Closed Won` (unreleased).
+- `sf-field-group` renders picklist and lookup fields through these tag helpers itself (unreleased; it used to emit an
+  unprocessed `<sf-picklist>` element).
 
 Example:
 ```html
@@ -46,7 +51,7 @@ Example:
 
 Example:
 ```html
-<sf-model-form asp-model="Model" sf-object="Contact" sf-columns="2"></sf-model-form>
+<sf-model-form asp-model="@Model" sf-object="Contact" sf-columns="2"></sf-model-form>
 ```
 
 ## Notes

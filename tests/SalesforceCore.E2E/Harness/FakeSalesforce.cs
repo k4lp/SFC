@@ -29,6 +29,8 @@ public sealed class FakeSalesforce : IAsyncDisposable
     public string? TokenInstanceUrlOverride;
     /// <summary>Hostile-server scenarios: return true after writing a response to short-circuit normal routing.</summary>
     public Func<HttpContext, Task<bool>>? Intercept;
+    /// <summary>Round 5: when set, answers POST /services/oauth2/token instead of the default responder.</summary>
+    public Func<HttpContext, IFormCollection, Task>? TokenResponder;
     /// <summary>Sforce-* request headers per request ("METHOD path" -> header -> value).</summary>
     public ConcurrentQueue<(string Line, Dictionary<string, string> Headers)> SforceHeaders { get; } = new();
     public JsonObject? LastIngestJobRequest;
@@ -153,6 +155,7 @@ public sealed class FakeSalesforce : IAsyncDisposable
             var form = await ctx.Request.ReadFormAsync();
             LastGrantType = form["grant_type"];
             if (TokenDelay > TimeSpan.Zero) await Task.Delay(TokenDelay);
+            if (TokenResponder != null) { await TokenResponder(ctx, form); return; }
             await Json(ctx, new JsonObject
             {
                 ["access_token"] = CurrentToken,

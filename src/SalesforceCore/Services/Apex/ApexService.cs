@@ -43,7 +43,15 @@ public class ApexService : IApexService
     {
         var url = BuildApexPath(path);
         var result = await _client.GetAsync(url, cancellationToken);
-        return result.AsObject();
+        return result as JsonObject ?? throw new InvalidOperationException(
+            $"Apex REST endpoint '{url}' returned a JSON {result?.GetValueKind().ToString() ?? "null"}, not an object. Use GetNodeAsync (raw node) or GetAsync<T> for array responses.");
+    }
+
+    /// <inheritdoc/>
+    public async Task<JsonNode?> GetNodeAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var url = BuildApexPath(path);
+        return await _client.GetAsync(url, cancellationToken);
     }
 
     /// <inheritdoc/>

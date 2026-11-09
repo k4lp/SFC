@@ -23,7 +23,7 @@ proxy or a hostile `instance_url` is in scope), describe metadata fed to `sf-gen
 
 | Package | Spoofing | Tampering | Repudiation | Information disclosure | DoS | Elevation |
 |---|---|---|---|---|---|---|
-| SalesforceCore | `instance_url` / `Domain` allow-list, HTTPS only, cross-host redirect discarded | SOQL/SOSL escaping, identifier validation, path guard, header guard | `Sforce-Call-Options client=` (`ClientName`), request IDs on exceptions | token redaction in logs and exception messages; token fingerprints | response buffer cap, gzip cap, JSON depth 64, bounded retries/paging, SOQL length cap, regex timeouts | path traversal to other endpoints (Apex/Tooling) blocked |
+| SalesforceCore | `instance_url` / `Domain` allow-list, HTTPS only, redirects never followed (unreleased), cross-host 3xx refused | SOQL/SOSL escaping, identifier validation, path guard, header guard | `Sforce-Call-Options client=` (`ClientName`), request IDs on exceptions | token redaction in logs and exception messages; token fingerprints | response buffer cap, gzip cap, JSON depth 64, bounded retries/paging, SOQL length cap, regex timeouts | path traversal to other endpoints (Apex/Tooling) blocked |
 | AspNetCore | OAuth state + PKCE (ASP.NET Core OIDC handler), `instance_url` validated at sign-in | anti-forgery on every POST | ‑ | generic error messages for non-Salesforce exceptions, file headers (`nosniff`, CSP sandbox) | upload size limits | open redirect blocked (`IsLocalUrl`) |
 | SqlServer | ‑ | quoted identifiers, parameterised values | ‑ | AES-GCM encrypted entries, per-user keys | bounded batch sizes | ‑ |
 | ModelGenerator | ‑ | identifiers sanitised, strings/comments escaped | ‑ | ‑ | ‑ | output path confined to the output directory |
@@ -38,7 +38,8 @@ proxy or a hostile `instance_url` is in scope), describe metadata fed to `sf-gen
   everywhere, because `$` also matched before a trailing newline (`"Account\n"` used to pass).
 - **URL paths**: every instance-relative path goes through `SalesforcePathGuard` (in `SalesforceClient.BuildPath` and
   for every composite sub-request URL). `.`/`..` segments, also as `%2e%2e` or double-encoded, backslashes, control
-  characters and absolute/protocol-relative URLs are rejected before anything is sent. Values placed in a single
+  characters and absolute/protocol-relative URLs are rejected before anything is sent (the scheme check uses the raw
+  path, so a percent-encoded `https%3A%2F%2F…` external ID value stays legal; unreleased). Values placed in a single
   segment (external IDs) use `SalesforcePathGuard.Segment`. Record, report, instance, ApexLog and record type IDs must be
   15/18-character IDs.
 - **Headers**: names must be RFC 7230 tokens; values with CR, LF or NUL are rejected (`ClientName` at startup).
@@ -58,6 +59,9 @@ proxy or a hostile `instance_url` is in scope), describe metadata fed to `sf-gen
   Add your own with `AdditionalAllowedHosts`. `ValidateInstanceUrl=false` turns this off (not recommended).
 - 2.7.0: `SalesforceTransportSecurityHandler` refuses to send an `Authorization` header over `http://` and discards a
   response that was redirected to another host. `AllowInsecureHttp` is the opt-out for local test proxies.
+- unreleased: `SalesforceRedirectPolicy` turns off automatic redirects on every Salesforce client (API, JWT, client
+  credentials, token refresh/revoke). .NET strips `Authorization` on redirect but still re-sends SOQL query strings and,
+  for 307/308, record bodies; `RedirectTwoListenerE2ETests` asserts that a second real HTTPS listener receives nothing.
 - TLS: the library never sets `ServerCertificateCustomValidationCallback` or `SslProtocols`; the OS default (TLS 1.2+)
   applies. Salesforce requires TLS 1.2+.
 

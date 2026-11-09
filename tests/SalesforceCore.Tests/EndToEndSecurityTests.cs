@@ -150,6 +150,7 @@ public class EndToEndSecurityTests
         factoryCallCount.Should().Be(1);
         var results = await Task.WhenAll(tasks);
         results.Should().OnlyContain(result => result == "cached_value");
+        MemoryCacheProvider.KeyLocks.IsTracked("SF_test_key").Should().BeFalse("all ten callers released the key lock");
     }
 
     [Fact]
